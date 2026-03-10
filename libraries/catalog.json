@@ -1,0 +1,522 @@
+{
+  "_meta": {
+    "description": "Catalogo librerie Arduino/ESP32 disponibili per l'agente",
+    "builtin_path": "libraries/builtin/",
+    "external_path": "libraries/external/",
+    "last_updated": "2026-03-09"
+  },
+  "builtin": {
+    "ArduinoOTA": {
+      "name": "ArduinoOTA",
+      "category": "Communication",
+      "description": "Aggiornamento firmware Over-The-Air via WiFi",
+      "include": "ArduinoOTA.h",
+      "pio_name": "",
+      "headers_path": "builtin/ArduinoOTA/src",
+      "examples_path": "builtin/ArduinoOTA/examples",
+      "use_case": "Upload firmware via rete senza cavo USB"
+    },
+    "AsyncUDP": {
+      "name": "AsyncUDP",
+      "category": "Communication",
+      "description": "Libreria UDP asincrona per ESP32",
+      "include": "AsyncUDP.h",
+      "pio_name": "",
+      "headers_path": "builtin/AsyncUDP/src",
+      "examples_path": "builtin/AsyncUDP/examples",
+      "use_case": "Comunicazione UDP non bloccante"
+    },
+    "BLE": {
+      "name": "BLE",
+      "category": "Communication",
+      "description": "Bluetooth Low Energy per ESP32",
+      "include": "BLEDevice.h",
+      "pio_name": "",
+      "headers_path": "builtin/BLE/src",
+      "examples_path": "builtin/BLE/examples",
+      "use_case": "Comunicazione Bluetooth 4.x/5 a bassa energia, beacon, server GATT"
+    },
+    "BluetoothSerial": {
+      "name": "BluetoothSerial",
+      "category": "Communication",
+      "description": "Bluetooth Classic seriale (SPP) per ESP32",
+      "include": "BluetoothSerial.h",
+      "pio_name": "",
+      "headers_path": "builtin/BluetoothSerial/src",
+      "examples_path": "builtin/BluetoothSerial/examples",
+      "use_case": "Comunicazione seriale wireless via Bluetooth Classic"
+    },
+    "DNSServer": {
+      "name": "DNSServer",
+      "category": "Communication",
+      "description": "Server DNS semplice per ESP32",
+      "include": "DNSServer.h",
+      "pio_name": "",
+      "headers_path": "builtin/DNSServer/src",
+      "examples_path": "builtin/DNSServer/examples",
+      "use_case": "Captive portal, redirect DNS in reti AP"
+    },
+    "EEPROM": {
+      "name": "EEPROM",
+      "category": "Data Storage",
+      "description": "Lettura/scrittura dati persistenti su flash emulata",
+      "include": "EEPROM.h",
+      "pio_name": "",
+      "headers_path": "builtin/EEPROM/src",
+      "examples_path": "builtin/EEPROM/examples",
+      "use_case": "Salvare configurazioni, contatori, impostazioni in modo persistente"
+    },
+    "ESP32": {
+      "name": "ESP32",
+      "category": "Other",
+      "description": "Esempi e utility specifici ESP32",
+      "include": null,
+      "pio_name": "",
+      "headers_path": "builtin/ESP32/src",
+      "examples_path": "builtin/ESP32/examples",
+      "use_case": "Esempi dimostrativi ESP32 (touch, hall sensor, deep sleep...)"
+    },
+    "ESPmDNS": {
+      "name": "ESPmDNS",
+      "category": "Communication",
+      "description": "Risoluzione nomi mDNS/Bonjour per ESP32",
+      "include": "ESPmDNS.h",
+      "pio_name": "",
+      "headers_path": "builtin/ESPmDNS/src",
+      "examples_path": "builtin/ESPmDNS/examples",
+      "use_case": "Accedere all'ESP32 con nome tipo 'esp32.local' senza conoscere IP"
+    },
+    "Ethernet": {
+      "name": "Ethernet",
+      "category": "Communication",
+      "description": "Connessione di rete via Ethernet per ESP32",
+      "include": "ETH.h",
+      "pio_name": "",
+      "headers_path": "builtin/Ethernet/src",
+      "examples_path": "builtin/Ethernet/examples",
+      "use_case": "Connessione internet via cavo Ethernet (ESP32 con ETH integrato)"
+    },
+    "FFat": {
+      "name": "FFat",
+      "category": "Data Storage",
+      "description": "File system FAT su flash per ESP32",
+      "include": "FFat.h",
+      "pio_name": "",
+      "headers_path": "builtin/FFat/src",
+      "examples_path": "builtin/FFat/examples",
+      "use_case": "File system FAT per accesso file in flash interna"
+    },
+    "FS": {
+      "name": "FS",
+      "category": "Data Storage",
+      "description": "Astrazione file system per ESP32",
+      "include": "FS.h",
+      "pio_name": "",
+      "headers_path": "builtin/FS/src",
+      "examples_path": null,
+      "use_case": "Base comune per SPIFFS, LittleFS, SD"
+    },
+    "HTTPClient": {
+      "name": "HTTPClient",
+      "category": "Communication",
+      "description": "Client HTTP/HTTPS per ESP32",
+      "include": "HTTPClient.h",
+      "pio_name": "",
+      "headers_path": "builtin/HTTPClient/src",
+      "examples_path": "builtin/HTTPClient/examples",
+      "use_case": "Chiamate GET/POST a API REST, download file via HTTP"
+    },
+    "HTTPUpdate": {
+      "name": "HTTPUpdate",
+      "category": "Data Processing",
+      "description": "Aggiornamento firmware via HTTP",
+      "include": "HTTPUpdate.h",
+      "pio_name": "",
+      "headers_path": "builtin/HTTPUpdate/src",
+      "examples_path": "builtin/HTTPUpdate/examples",
+      "use_case": "OTA via download HTTP da server remoto"
+    },
+    "HTTPUpdateServer": {
+      "name": "HTTPUpdateServer",
+      "category": "Communication",
+      "description": "Server HTTP per aggiornamento firmware via POST",
+      "include": "HTTPUpdateServer.h",
+      "pio_name": "",
+      "headers_path": "builtin/HTTPUpdateServer/src",
+      "examples_path": "builtin/HTTPUpdateServer/examples",
+      "use_case": "Permettere upload firmware via browser all'URL /update"
+    },
+    "I2S": {
+      "name": "I2S",
+      "category": "Communication",
+      "description": "Bus I2S (Inter-IC Sound) per ESP32",
+      "include": "I2S.h",
+      "pio_name": "",
+      "headers_path": "builtin/I2S/src",
+      "examples_path": "builtin/I2S/examples",
+      "use_case": "Audio digitale, microfoni e amplificatori DAC/ADC via I2S"
+    },
+    "LittleFS": {
+      "name": "LittleFS",
+      "category": "Data Storage",
+      "description": "File system LittleFS su flash per ESP32 (più robusto di SPIFFS)",
+      "include": "LittleFS.h",
+      "pio_name": "",
+      "headers_path": "builtin/LittleFS/src",
+      "examples_path": "builtin/LittleFS/examples",
+      "use_case": "File system robusto per configurazioni, log, pagine web su flash"
+    },
+    "NetBIOS": {
+      "name": "NetBIOS",
+      "category": "Communication",
+      "description": "Risoluzione nomi NetBIOS per ESP32",
+      "include": "NetBIOS.h",
+      "pio_name": "",
+      "headers_path": "builtin/NetBIOS/src",
+      "examples_path": "builtin/NetBIOS/examples",
+      "use_case": "Accedere all'ESP32 via nome NetBIOS da Windows"
+    },
+    "Preferences": {
+      "name": "Preferences",
+      "category": "Data Storage",
+      "description": "Storage chiave-valore su NVS (Non-Volatile Storage) ESP32",
+      "include": "Preferences.h",
+      "pio_name": "",
+      "headers_path": "builtin/Preferences/src",
+      "examples_path": "builtin/Preferences/examples",
+      "use_case": "Salvare impostazioni (ssid, password, soglie) in modo persistente e tipizzato"
+    },
+    "SD": {
+      "name": "SD",
+      "category": "Data Storage",
+      "description": "Lettura/scrittura su schede SD via SPI",
+      "include": "SD.h",
+      "pio_name": "",
+      "headers_path": "builtin/SD/src",
+      "examples_path": "builtin/SD/examples",
+      "use_case": "Log su SD card, lettura configurazioni da file, storage dati sensori"
+    },
+    "SD_MMC": {
+      "name": "SD_MMC",
+      "category": "Data Storage",
+      "description": "Schede SD via interfaccia MMC nativa ESP32 (più veloce di SPI)",
+      "include": "SD_MMC.h",
+      "pio_name": "",
+      "headers_path": "builtin/SD_MMC/src",
+      "examples_path": "builtin/SD_MMC/examples",
+      "use_case": "Accesso veloce a SD card su ESP32-CAM e varianti con MMC"
+    },
+    "SimpleBLE": {
+      "name": "SimpleBLE",
+      "category": "Communication",
+      "description": "BLE advertiser semplice per ESP32",
+      "include": "SimpleBLE.h",
+      "pio_name": "",
+      "headers_path": "builtin/SimpleBLE/src",
+      "examples_path": "builtin/SimpleBLE/examples",
+      "use_case": "Beacon BLE semplice senza stack completo"
+    },
+    "SPI": {
+      "name": "SPI",
+      "category": "Signal Input/Output",
+      "description": "Bus SPI (Serial Peripheral Interface) per ESP32",
+      "include": "SPI.h",
+      "pio_name": "",
+      "headers_path": "builtin/SPI/src",
+      "examples_path": "builtin/SPI/examples",
+      "use_case": "Comunicazione con sensori e display SPI (SD card, OLED, RF modules)"
+    },
+    "SPIFFS": {
+      "name": "SPIFFS",
+      "category": "Data Storage",
+      "description": "File system SPIFFS su flash per ESP32 (legacy, preferire LittleFS)",
+      "include": "SPIFFS.h",
+      "pio_name": "",
+      "headers_path": "builtin/SPIFFS/src",
+      "examples_path": "builtin/SPIFFS/examples",
+      "use_case": "File system su flash interna (deprecato, usa LittleFS)"
+    },
+    "Ticker": {
+      "name": "Ticker",
+      "category": "Timing",
+      "description": "Esecuzione di funzioni a intervalli regolari",
+      "include": "Ticker.h",
+      "pio_name": "",
+      "headers_path": "builtin/Ticker/src",
+      "examples_path": "builtin/Ticker/examples",
+      "use_case": "Callback periodici senza bloccare il loop (timer software)"
+    },
+    "Update": {
+      "name": "Update",
+      "category": "Other",
+      "description": "Aggiornamento firmware OTA a basso livello",
+      "include": "Update.h",
+      "pio_name": "",
+      "headers_path": "builtin/Update/src",
+      "examples_path": "builtin/Update/examples",
+      "use_case": "Base per implementazioni OTA personalizzate"
+    },
+    "WebServer": {
+      "name": "WebServer",
+      "category": "Communication",
+      "description": "Server HTTP semplice per ESP32",
+      "include": "WebServer.h",
+      "pio_name": "",
+      "headers_path": "builtin/WebServer/src",
+      "examples_path": "builtin/WebServer/examples",
+      "use_case": "Servire pagine web, API REST, dashboard di configurazione"
+    },
+    "WiFi": {
+      "name": "WiFi",
+      "category": "Communication",
+      "description": "Connessione WiFi per ESP32 (STA e AP mode)",
+      "include": "WiFi.h",
+      "pio_name": "",
+      "headers_path": "builtin/WiFi/src",
+      "examples_path": "builtin/WiFi/examples",
+      "use_case": "Connessione a rete WiFi, hotspot AP, scan reti, RSSI"
+    },
+    "WiFiClientSecure": {
+      "name": "WiFiClientSecure",
+      "category": "Communication",
+      "description": "Client WiFi con TLS/SSL per ESP32",
+      "include": "WiFiClientSecure.h",
+      "pio_name": "",
+      "headers_path": "builtin/WiFiClientSecure/src",
+      "examples_path": "builtin/WiFiClientSecure/examples",
+      "use_case": "Connessioni HTTPS sicure, MQTT over TLS, API con certificati"
+    },
+    "WiFiProv": {
+      "name": "WiFiProv",
+      "category": "Communication",
+      "description": "Provisioning WiFi tramite BLE o SoftAP",
+      "include": "WiFiProv.h",
+      "pio_name": "",
+      "headers_path": "builtin/WiFiProv/src",
+      "examples_path": "builtin/WiFiProv/examples",
+      "use_case": "Configurazione WiFi tramite app mobile senza credenziali hardcoded"
+    },
+    "Wire": {
+      "name": "Wire",
+      "category": "Signal Input/Output",
+      "description": "Bus I2C (Wire) per ESP32",
+      "include": "Wire.h",
+      "pio_name": "",
+      "headers_path": "builtin/Wire/src",
+      "examples_path": "builtin/Wire/examples",
+      "use_case": "Sensori I2C (BME280, MPU6050, ADS1115, display OLED, RTC)"
+    },
+    "Insights": {
+      "name": "ESP Insights",
+      "category": "Diagnostics",
+      "description": "Monitoraggio remoto log, metriche WiFi/heap e variabili custom",
+      "include": "Insights.h",
+      "pio_name": "",
+      "headers_path": "builtin/Insights/src",
+      "examples_path": "builtin/Insights/examples",
+      "use_case": "Debug remoto in produzione, monitoraggio crash e metriche"
+    },
+    "RainMaker": {
+      "name": "ESP RainMaker",
+      "category": "IoT",
+      "description": "Piattaforma IoT Espressif con app mobile pronta",
+      "include": "RMaker.h",
+      "pio_name": "",
+      "headers_path": "builtin/RainMaker/src",
+      "examples_path": "builtin/RainMaker/examples",
+      "use_case": "Dispositivi IoT connessi ad app mobile senza infrastruttura custom"
+    },
+    "USB": {
+      "name": "USB",
+      "category": "Communication",
+      "description": "USB nativo per ESP32-S2/S3 (HID, CDC, MSC)",
+      "include": "USB.h",
+      "pio_name": "",
+      "headers_path": "builtin/USB/src",
+      "examples_path": "builtin/USB/examples",
+      "use_case": "Emulare tastiera, mouse, joystick, drive USB (solo ESP32-S2/S3)"
+    }
+  },
+  "external": {
+    "DHT": {
+      "name": "DHT sensor library",
+      "category": "Sensor",
+      "description": "Lettura sensori di temperatura/umidità DHT11, DHT21, DHT22",
+      "include": "DHT.h",
+      "pio_name": "adafruit/DHT sensor library",
+      "installed": false,
+      "use_case": "Lettura temperatura e umidità da sensori DHT11/22"
+    },
+    "OneWire": {
+      "name": "OneWire",
+      "category": "Communication",
+      "description": "Protocollo 1-Wire per sensori DS18B20 e simili",
+      "include": "OneWire.h",
+      "pio_name": "paulstoffregen/OneWire",
+      "installed": false,
+      "use_case": "Comunicazione con sensori 1-Wire (DS18B20 temperatura)"
+    },
+    "DallasTemperature": {
+      "name": "DallasTemperature",
+      "category": "Sensor",
+      "description": "Lettura sensori di temperatura Dallas/Maxim (DS18B20, DS18S20...)",
+      "include": "DallasTemperature.h",
+      "pio_name": "milesburton/DallasTemperature",
+      "installed": false,
+      "use_case": "Lettura temperatura da DS18B20 su bus 1-Wire"
+    },
+    "Servo": {
+      "name": "Servo",
+      "category": "Actuator",
+      "description": "Controllo servomotori PWM",
+      "include": "Servo.h",
+      "pio_name": "arduino-libraries/Servo",
+      "installed": false,
+      "use_case": "Controllo angolo servomotori (0-180 gradi)"
+    },
+    "LiquidCrystal_I2C": {
+      "name": "LiquidCrystal_I2C",
+      "category": "Display",
+      "description": "Display LCD 16x2/20x4 via I2C",
+      "include": "LiquidCrystal_I2C.h",
+      "pio_name": "marcoschwartz/LiquidCrystal_I2C",
+      "installed": false,
+      "use_case": "Stampare testo su display LCD con backpack I2C (addr 0x27 o 0x3F)"
+    },
+    "Adafruit_GFX": {
+      "name": "Adafruit GFX Library",
+      "category": "Display",
+      "description": "Libreria grafica base Adafruit per display",
+      "include": "Adafruit_GFX.h",
+      "pio_name": "adafruit/Adafruit GFX Library",
+      "installed": false,
+      "use_case": "Grafica 2D su display OLED/TFT (richiesta da Adafruit_SSD1306 ecc.)"
+    },
+    "Adafruit_SSD1306": {
+      "name": "Adafruit SSD1306",
+      "category": "Display",
+      "description": "Display OLED 128x64/128x32 via I2C o SPI",
+      "include": "Adafruit_SSD1306.h",
+      "pio_name": "adafruit/Adafruit SSD1306",
+      "installed": false,
+      "use_case": "Visualizzare testo e grafica su piccoli display OLED 0.96\""
+    },
+    "Adafruit_BME280": {
+      "name": "Adafruit BME280 Library",
+      "category": "Sensor",
+      "description": "Sensore temperatura/umidità/pressione BME280 via I2C/SPI",
+      "include": "Adafruit_BME280.h",
+      "pio_name": "adafruit/Adafruit BME280 Library",
+      "installed": false,
+      "use_case": "Lettura temperatura, umidità e pressione atmosferica"
+    },
+    "Adafruit_MPU6050": {
+      "name": "Adafruit MPU6050",
+      "category": "Sensor",
+      "description": "Accelerometro + giroscopio MPU-6050 via I2C",
+      "include": "Adafruit_MPU6050.h",
+      "pio_name": "adafruit/Adafruit MPU6050",
+      "installed": false,
+      "use_case": "Rilevare accelerazione, rotazione e orientamento"
+    },
+    "IRremote": {
+      "name": "IRremote",
+      "category": "Communication",
+      "description": "Trasmissione/ricezione segnali infrarossi",
+      "include": "IRremote.hpp",
+      "pio_name": "z3t0/IRremote",
+      "installed": false,
+      "use_case": "Leggere telecomandi IR, simulare telecomandi"
+    },
+    "PubSubClient": {
+      "name": "PubSubClient",
+      "category": "Communication",
+      "description": "Client MQTT per ESP32",
+      "include": "PubSubClient.h",
+      "pio_name": "knolleary/PubSubClient",
+      "installed": false,
+      "use_case": "Pubblicare e sottoscrivere messaggi MQTT (IoT, Home Assistant)"
+    },
+    "ArduinoJson": {
+      "name": "ArduinoJson",
+      "category": "Data Processing",
+      "description": "Parsing e serializzazione JSON",
+      "include": "ArduinoJson.h",
+      "pio_name": "bblanchon/ArduinoJson",
+      "installed": false,
+      "use_case": "Parsare risposte API REST JSON, serializzare dati per invio HTTP"
+    },
+    "FastLED": {
+      "name": "FastLED",
+      "category": "Display",
+      "description": "Controllo LED RGB indirizzabili (WS2812, WS2811, APA102...)",
+      "include": "FastLED.h",
+      "pio_name": "fastled/FastLED",
+      "installed": false,
+      "use_case": "Strip LED RGB WS2812B/NeoPixel, effetti animati, palette colori"
+    },
+    "NewPing": {
+      "name": "NewPing",
+      "category": "Sensor",
+      "description": "Sensori ultrasonici HC-SR04 e compatibili",
+      "include": "NewPing.h",
+      "pio_name": "teckel12/NewPing",
+      "installed": false,
+      "use_case": "Misura distanza con sensori ultrasonici HC-SR04"
+    },
+    "AsyncMQTT": {
+      "name": "AsyncMqttClient",
+      "category": "Communication",
+      "description": "Client MQTT asincrono per ESP32",
+      "include": "AsyncMqttClient.h",
+      "pio_name": "marvinroger/AsyncMqttClient",
+      "installed": false,
+      "use_case": "MQTT non bloccante con callback"
+    },
+    "ESP_NOW": {
+      "name": "ESP-NOW",
+      "category": "Communication",
+      "description": "Protocollo wireless Espressif device-to-device senza router",
+      "include": "esp_now.h",
+      "pio_name": "",
+      "installed": false,
+      "use_case": "Comunicazione diretta ESP32-ESP32 senza WiFi router, telemetria"
+    },
+    "NTPClient": {
+      "name": "NTPClient",
+      "category": "Timing",
+      "description": "Client NTP per sincronizzazione ora da internet",
+      "include": "NTPClient.h",
+      "pio_name": "arduino-libraries/NTPClient",
+      "installed": false,
+      "use_case": "Ottenere ora e data da server NTP via WiFi"
+    },
+    "TFT_eSPI": {
+      "name": "TFT_eSPI",
+      "category": "Display",
+      "description": "Driver display TFT SPI ad alte prestazioni per ESP32",
+      "include": "TFT_eSPI.h",
+      "pio_name": "bodmer/TFT_eSPI",
+      "installed": false,
+      "use_case": "Display TFT colorati SPI (ILI9341, ST7735, ILI9163...)"
+    },
+    "Stepper": {
+      "name": "Stepper",
+      "category": "Actuator",
+      "description": "Controllo motori passo-passo",
+      "include": "Stepper.h",
+      "pio_name": "arduino-libraries/Stepper",
+      "installed": false,
+      "use_case": "Controllo base motori stepper unipolari/bipolari"
+    },
+    "AccelStepper": {
+      "name": "AccelStepper",
+      "category": "Actuator",
+      "description": "Controllo avanzato motori stepper con accelerazione",
+      "include": "AccelStepper.h",
+      "pio_name": "waspinator/AccelStepper",
+      "installed": false,
+      "use_case": "Motori stepper con profili di accelerazione, multi-motore"
+    }
+  }
+}
