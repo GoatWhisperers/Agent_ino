@@ -1,0 +1,81 @@
+# MI50 Server — Qwen3.5-9B su ROCm 6.2
+#
+# Build:
+#   cd programmatore_di_arduini
+#   docker build -f docker/Dockerfile.mi50 -t mi50-server .
+#
+# Run:
+#   docker run --rm \
+#     --device /dev/kfd --device /dev/dri \
+#     --group-add video --group-add render \
+#     -v /mnt/raid0:/mnt/raid0:ro \
+#     -p 11434:11434 \
+#     mi50-server
+
+# ── Base: ROCm 6.2 completo ────────────────────────────────────────────────────
+FROM rocm/dev-ubuntu-22.04:6.2-complete
+
+# ── Sistema ────────────────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3.11-dev python3.11-venv python3-pip \
+        git wget curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python 3.11 come default
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+ && update-alternatives --install /usr/bin/python  python  /usr/bin/python3.11 1
+
+# pip aggiornato
+RUN python3 -m pip install --upgrade pip wheel setuptools
+
+# ── PyTorch ROCm 6.2 — stabile su MI50 (gfx906) ──────────────────────────────
+RUN pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/rocm6.2
+
+# ── Dipendenze Python server ───────────────────────────────────────────────────
+RUN pip install \
+    flask \
+    "transformers>=4.47.0" \
+    accelerate \
+    sentencepiece \
+    protobuf \
+    pillow \
+    huggingface_hub
+
+# ── causal-conv1d ──────────────────────────────────────────────────────────────
+# Usata da Qwen3.5 per i layer SSM/convoluzionali — kernel HIP nativi, no Triton.
+# Compila per gfx906 ma durante la build Docker non c'è GPU disponibile:
+# il trick del fake amdgpu-arch risolve senza bisogno di hardware.
+RUN printf '#!/bin/sh\necho gfx906\n' > /opt/rocm/lib/llvm/bin/amdgpu-arch \
+ && chmod +x /opt/rocm/lib/llvm/bin/amdgpu-arch
+
+RUN HSA_OVERRIDE_GFX_VERSION=9.0.6 \
+    ROCM_PATH=/opt/rocm \
+    PATH="/opt/rocm/bin:${PATH}" \
+    PYTORCH_ROCM_ARCH="gfx906" \
+    HCC_AMDGPU_TARGET="gfx906" \
+    MAX_JOBS=4 \
+    pip install causal-conv1d --no-build-isolation
+
+# ── Verifica importabili ───────────────────────────────────────────────────────
+RUN python3 -c "\
+import torch; print('torch OK:', torch.__version__); \
+import causal_conv1d; print('causal_conv1d OK:', causal_conv1d.__version__); \
+import transformers; print('transformers OK:', transformers.__version__); \
+print('ALL IMPORTS OK')"
+
+# ── App ───────────────────────────────────────────────────────────────────────
+WORKDIR /app
+COPY agent/mi50_server.py .
+
+# ── Env vars ROCm (MI50 gfx906) ───────────────────────────────────────────────
+# HSA_OVERRIDE=9.0.6: corrisponde all'architettura reale gfx906.
+# Non usiamo Triton (attn_implementation=eager nel server), quindi 9.0.8 non serve.
+ENV HSA_OVERRIDE_GFX_VERSION=9.0.6
+ENV HIP_VISIBLE_DEVICES=0
+ENV HSA_ENABLE_SDMA=0
+ENV PYTORCH_HIP_ALLOC_CONF=max_split_size_mb:128,garbage_collection_threshold:0.95,expandable_segments:True
+ENV HF_HOME=/mnt/raid0/hf_cache
+
+EXPOSE 11434
+
+CMD ["python3", "mi50_server.py"]

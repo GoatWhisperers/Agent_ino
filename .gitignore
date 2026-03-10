@@ -1,0 +1,32 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Workspace e log (dati locali)
+workspace/
+logs/
+knowledge/*.db
+knowledge/chroma_db/
+
+# Modelli e binari
+bin/
+*.gguf
+*.hex
+*.elf
+*.bin
+
+# Cache e temporanei
+.frames_cache.json
+/tmp/
+*.log
+
+# Segreti
+.env
+*.key
+
+# IDE
+.vscode/
+.idea/
