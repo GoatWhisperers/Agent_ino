@@ -2,10 +2,7 @@
 Tool Agent — agente ReAct che usa MI50 per decidere quali tools chiamare.
 
 Il modello vede il task, ragiona, e chiama tools in sequenza.
-I tools sono eseguiti dal loop Python e il risultato torna al modello.
-
-Lo stato corrente (codice, notebook) è gestito server-side: il modello
-non porta il codice in conversazione, solo i risultati sintetici.
+Gli eventi vengono mandati alla dashboard via HTTP POST /emit.
 
 Avvio:
     python agent/tool_agent.py "task" [--fqbn esp32:esp32:esp32] [--max-steps 30]
@@ -22,10 +19,24 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agent.mi50_client import MI50Client
-import agent.dashboard as dashboard
 
-_ROOT = Path(__file__).parent.parent
-_TOOLS_DIR = _ROOT / "tools"
+# ── Dashboard helper — invia eventi via HTTP al processo dashboard ─────────────
+
+_DASH_URL = "http://localhost:7700/emit"
+
+def _dash(event_type: str, **kwargs):
+    """Invia evento alla dashboard via HTTP (funziona da subprocess separato)."""
+    try:
+        import requests
+        requests.post(_DASH_URL, json={"type": event_type, **kwargs}, timeout=2)
+    except Exception:
+        pass
+
+def _phase(name: str, detail: str = ""):
+    _dash("phase", name=name, detail=detail)
+
+def _frame(path: str, label: str = "agent"):
+    _dash("frame", path=path, label=label)
 
 # ── System prompt ──────────────────────────────────────────────────────────────
 
@@ -50,7 +61,7 @@ FLUSSO TIPICO:
   2. plan_functions       → lista funzioni da generare
   3. generate_globals     → sezione #include/#define/variabili
   4. generate_function    → genera ogni funzione (ripeti per ognuna)
-  5. compile              → compila; se errori → analyze_errors → patch → compile
+  5. compile              → compila; se errori → analyze_errors → patch_code → compile
   6. upload_and_read      → carica ESP32, legge seriale
   7. grab_frames          → cattura webcam SE task ha display (usa vcap_frames dal piano)
   8. evaluate_text        → valuta con output seriale
@@ -63,20 +74,18 @@ Rispondi SOLO con JSON valido. Nessun testo aggiuntivo."""
 # ── Stato sessione (server-side) ───────────────────────────────────────────────
 
 class _Session:
-    """Stato corrente della sessione: codice, notebook, frame, serial."""
     def __init__(self, task: str, fqbn: str):
         self.task = task
         self.fqbn = fqbn
-        self.nb = None          # Notebook corrente
-        self.sketch_dir = None  # Path directory sketch
-        self.code = ""          # Codice corrente assemblato
-        self.errors = []        # Ultimi errori compilatore
-        self.serial = ""        # Output seriale
-        self.frame_paths = []   # Path frame webcam
+        self.nb = None
+        self.sketch_dir = None
+        self.code = ""
+        self.errors = []
+        self.serial = ""
+        self.frame_paths = []
         self.compile_attempts = 0
 
     def write_sketch(self, code: str):
-        """Scrive il codice nella directory sketch."""
         from agent.compiler import fix_known_includes
         code = fix_known_includes(code)
         self.code = code
@@ -91,10 +100,11 @@ class _Session:
 
 # ── Tool implementations ───────────────────────────────────────────────────────
 
+_TOOLS_DIR = Path(__file__).parent.parent / "tools"
+
 def _list_tools(args: dict, sess: _Session) -> dict:
     try:
         data = json.loads((_TOOLS_DIR / "lista.json").read_text())
-        # Ritorna solo nome + scopo per non gonfiare il contesto
         return {"tools": [{"nome": t["nome"], "scopo": t["scopo"]} for t in data["tools"]]}
     except Exception as e:
         return {"error": str(e)}
@@ -115,7 +125,7 @@ def _get_tool(args: dict, sess: _Session) -> dict:
 def _plan_task(args: dict, sess: _Session) -> dict:
     from agent.orchestrator import Orchestrator
     context = args.get("context", "")
-    dashboard.phase("PLAN", "orchestrator pianifica il task")
+    _phase("PLAN", "orchestrator pianifica il task")
     orch = Orchestrator()
     plan = orch.plan_task(task=sess.task, context=context)
     return {
@@ -131,10 +141,9 @@ def _plan_functions(args: dict, sess: _Session) -> dict:
     from agent.orchestrator import Orchestrator
     from agent.notebook import Notebook
     context = args.get("context", "")
-    dashboard.phase("PLAN_FUNCS", "orchestrator pianifica funzioni")
+    _phase("PLAN_FUNCS", "orchestrator pianifica funzioni")
     orch = Orchestrator()
     result = orch.plan_functions(task=sess.task, context=context)
-    # Crea notebook
     sess.nb = Notebook(task=sess.task, board=sess.fqbn)
     sess.nb.set_funzioni(
         globals_hint=result.get("globals_hint", ""),
@@ -151,7 +160,7 @@ def _generate_globals(args: dict, sess: _Session) -> dict:
     from agent.generator import Generator
     if sess.nb is None:
         return {"error": "Chiama plan_functions prima di generate_globals"}
-    dashboard.phase("GLOBALS", "M40 genera globals")
+    _phase("GLOBALS", "M40 genera globals")
     gen = Generator()
     result = gen.generate_globals(nb=sess.nb)
     sess.nb.globals_code = result["code"]
@@ -165,14 +174,13 @@ def _generate_function(args: dict, sess: _Session) -> dict:
     nome = args.get("nome", "")
     if not nome:
         return {"error": "Specifica args.nome"}
-    dashboard.phase(f"GEN {nome}()", "M40 genera funzione")
-    dashboard.func_start(nome)
+    _phase(f"GEN {nome}()", "M40 genera funzione")
+    _dash("func_start", nome=nome)
     gen = Generator()
     result = gen.generate_function(nome=nome, nb=sess.nb)
     sess.nb.update_funzione(nome, stato="done", codice=result["code"])
     lines = len(result["code"].splitlines())
-    dashboard.func_done(nome, lines)
-    # Assembla e scrivi sketch aggiornato
+    _dash("func_done", nome=nome, righe=lines)
     code, _ = sess.nb.assemble()
     sess.write_sketch(code)
     return {"ok": True, "nome": nome, "lines": lines}
@@ -183,15 +191,15 @@ def _compile(args: dict, sess: _Session) -> dict:
     if not sess.code:
         return {"error": "Nessun codice da compilare. Genera prima il codice."}
     sess.compile_attempts += 1
-    dashboard.phase(f"COMPILE #{sess.compile_attempts}", "arduino-cli compila")
-    # Fix API errors noti dal tentativo precedente
+    _phase(f"COMPILE #{sess.compile_attempts}", "arduino-cli compila")
     if sess.compile_attempts > 1 and sess.errors:
         fixed = fix_known_api_errors(sess.code, sess.errors)
         if fixed != sess.code:
             sess.write_sketch(fixed)
     result = compile_sketch(str(sess.sketch_dir), fqbn=sess.fqbn)
     sess.errors = result.get("errors", [])
-    dashboard.compile_result(result["success"], sess.errors, attempt=sess.compile_attempts)
+    _dash("compile_result", success=result["success"],
+          errors=sess.errors[:5], attempt=sess.compile_attempts)
     return {
         "success": result["success"],
         "errors": sess.errors[:5],
@@ -204,7 +212,7 @@ def _analyze_errors(args: dict, sess: _Session) -> dict:
     errors = args.get("errors", sess.errors)
     if not errors:
         return {"error": "Nessun errore da analizzare"}
-    dashboard.phase("ANALYZE", "MI50 analizza errori")
+    _phase("ANALYZE", "MI50 analizza errori")
     orch = Orchestrator()
     result = orch.analyze_errors(code=sess.code, errors=errors)
     return {
@@ -217,7 +225,7 @@ def _patch_code(args: dict, sess: _Session) -> dict:
     from agent.generator import Generator
     errors = args.get("errors", sess.errors)
     analysis = args.get("analysis", "")
-    dashboard.phase("PATCH", "M40 corregge il codice")
+    _phase("PATCH", "M40 corregge il codice")
     gen = Generator()
     result = gen.patch_code(code=sess.code, errors=errors, analysis=analysis)
     sess.write_sketch(result["code"])
@@ -229,7 +237,7 @@ def _upload_and_read(args: dict, sess: _Session) -> dict:
     serial_seconds = int(args.get("serial_seconds", 10))
     if not sess.code:
         return {"error": "Nessun codice da caricare"}
-    dashboard.phase("UPLOAD", "PlatformIO carica su ESP32")
+    _phase("UPLOAD", "PlatformIO carica su ESP32")
     result = upload_and_read_remote(
         ino_code=sess.code,
         task=sess.task,
@@ -238,7 +246,7 @@ def _upload_and_read(args: dict, sess: _Session) -> dict:
     )
     sess.serial = result.get("serial_output", "")
     lines = [l for l in sess.serial.splitlines() if l.strip()]
-    dashboard.serial_output(lines[:20])
+    _dash("serial_output", lines=lines[:20])
     return {
         "ok": result.get("upload_ok", False),
         "serial_output": sess.serial[:400],
@@ -250,12 +258,12 @@ def _grab_frames(args: dict, sess: _Session) -> dict:
     from agent.grab import grab_now
     n = int(args.get("n_frames", 3))
     interval_ms = int(args.get("interval_ms", 1000))
-    dashboard.phase("GRAB", f"webcam cattura {n} frame")
+    _phase("GRAB", f"webcam cattura {n} frame")
     result = grab_now(n_frames=n, interval_ms=interval_ms)
     if result.get("ok"):
         sess.frame_paths = result["frame_paths"]
         for p in sess.frame_paths:
-            dashboard.frame(p, label="agent")
+            _frame(p, label="agent")
     return {
         "ok": result.get("ok", False),
         "n_frames": result.get("n_frames", 0),
@@ -267,7 +275,7 @@ def _grab_frames(args: dict, sess: _Session) -> dict:
 def _evaluate_text(args: dict, sess: _Session) -> dict:
     from agent.evaluator import Evaluator
     serial = args.get("serial_output", sess.serial)
-    dashboard.phase("EVALUATE", "MI50 valuta output seriale")
+    _phase("EVALUATE", "MI50 valuta output seriale")
     ev = Evaluator()
     result = ev.evaluate(task=sess.task, serial_output=serial, code=sess.code)
     return {
@@ -283,7 +291,7 @@ def _evaluate_visual(args: dict, sess: _Session) -> dict:
     serial = args.get("serial_output", sess.serial)
     if not frame_paths:
         return {"error": "Nessun frame disponibile. Chiama grab_frames prima."}
-    dashboard.phase("EVAL VISUAL", "MI50 valuta frame webcam")
+    _phase("EVAL VISUAL", "MI50 valuta frame webcam")
     ev = Evaluator()
     result = ev.evaluate_visual(task=sess.task, frame_paths=frame_paths, serial_output=serial)
     return {
@@ -299,7 +307,6 @@ def _search_kb(args: dict, sess: _Session) -> dict:
         qe = QueryEngine()
         n = int(args.get("n", 3))
         results = qe.search_snippets_text(sess.task, n_results=n)
-        # Trunca codice
         for r in results:
             if len(r.get("code", "")) > 400:
                 r["code"] = r["code"][:400] + "\n..."
@@ -311,7 +318,7 @@ def _search_kb(args: dict, sess: _Session) -> dict:
 def _save_to_kb(args: dict, sess: _Session) -> dict:
     from agent.learner import Learner
     notes = args.get("notes", "")
-    dashboard.phase("LEARN", "salva snippet nel DB")
+    _phase("LEARN", "salva snippet nel DB")
     try:
         learner = Learner()
         learner.extract_patterns(
@@ -328,29 +335,28 @@ def _save_to_kb(args: dict, sess: _Session) -> dict:
 # ── Registry ───────────────────────────────────────────────────────────────────
 
 _REGISTRY = {
-    "list_tools":       _list_tools,
-    "get_tool":         _get_tool,
-    "search_kb":        _search_kb,
-    "plan_task":        _plan_task,
-    "plan_functions":   _plan_functions,
-    "generate_globals": _generate_globals,
-    "generate_function":_generate_function,
-    "compile":          _compile,
-    "analyze_errors":   _analyze_errors,
-    "patch_code":       _patch_code,
-    "upload_and_read":  _upload_and_read,
-    "grab_frames":      _grab_frames,
-    "evaluate_text":    _evaluate_text,
-    "evaluate_visual":  _evaluate_visual,
-    "save_to_kb":       _save_to_kb,
+    "list_tools":        _list_tools,
+    "get_tool":          _get_tool,
+    "search_kb":         _search_kb,
+    "plan_task":         _plan_task,
+    "plan_functions":    _plan_functions,
+    "generate_globals":  _generate_globals,
+    "generate_function": _generate_function,
+    "compile":           _compile,
+    "analyze_errors":    _analyze_errors,
+    "patch_code":        _patch_code,
+    "upload_and_read":   _upload_and_read,
+    "grab_frames":       _grab_frames,
+    "evaluate_text":     _evaluate_text,
+    "evaluate_visual":   _evaluate_visual,
+    "save_to_kb":        _save_to_kb,
 }
 
 
 def _execute(name: str, args: dict, sess: _Session) -> dict:
     fn = _REGISTRY.get(name)
     if fn is None:
-        avail = list(_REGISTRY.keys())
-        return {"error": f"Tool '{name}' non esiste.", "disponibili": avail}
+        return {"error": f"Tool '{name}' non esiste.", "disponibili": list(_REGISTRY.keys())}
     try:
         return fn(args, sess)
     except Exception as e:
@@ -360,19 +366,16 @@ def _execute(name: str, args: dict, sess: _Session) -> dict:
 # ── JSON parsing ───────────────────────────────────────────────────────────────
 
 def _parse(text: str) -> dict | None:
-    # JSON diretto
     try:
         return json.loads(text.strip())
     except Exception:
         pass
-    # Markdown code block
     m = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
     if m:
         try:
             return json.loads(m.group(1).strip())
         except Exception:
             pass
-    # Cerca il primo oggetto JSON con tool o done
     for m in reversed(list(re.finditer(r"\{[\s\S]*?\}", text))):
         try:
             r = json.loads(m.group(0))
@@ -394,8 +397,8 @@ def run(task: str, fqbn: str = "esp32:esp32:esp32", max_steps: int = 30) -> dict
         {"role": "user", "content": f"Task: {task}\nFQBN: {fqbn}"},
     ]
 
-    dashboard.task_start(task, fqbn)
-    dashboard.phase("AGENT START", "tool agent avviato")
+    _dash("task_start", task=task, board=fqbn)
+    _phase("AGENT START", "tool agent avviato")
     print(f"\n[ToolAgent] Task: {task}", flush=True)
 
     retry_parse = 0
@@ -412,7 +415,7 @@ def run(task: str, fqbn: str = "esp32:esp32:esp32", max_steps: int = 30) -> dict
         if parsed is None:
             retry_parse += 1
             if retry_parse > 2:
-                dashboard.run_end(False, "Risposta non parsabile dopo 3 tentativi")
+                _dash("run_end", success=False, reason="Risposta non parsabile dopo 3 tentativi")
                 sess.cleanup()
                 return {"success": False, "reason": "Risposta non parsabile", "steps": step}
             messages.append({"role": "assistant", "content": raw})
@@ -428,7 +431,7 @@ def run(task: str, fqbn: str = "esp32:esp32:esp32", max_steps: int = 30) -> dict
             success = bool(parsed.get("success", False))
             reason = parsed.get("reason", "")
             print(f"[ToolAgent] {'✅' if success else '❌'} {reason}", flush=True)
-            dashboard.run_end(success, reason)
+            _dash("run_end", success=success, reason=reason)
             sess.cleanup()
             return {"success": success, "reason": reason, "steps": step}
 
@@ -446,10 +449,8 @@ def run(task: str, fqbn: str = "esp32:esp32:esp32", max_steps: int = 30) -> dict
 
         tool_result = _execute(tool_name, tool_args, sess)
 
-        # Serializza risultato — tronca parti grandi
-        result_for_ctx = dict(tool_result)
-        if "code" in result_for_ctx:
-            del result_for_ctx["code"]  # il codice non va in conversazione
+        # Serializza risultato — rimuovi code dal contesto
+        result_for_ctx = {k: v for k, v in tool_result.items() if k != "code"}
         result_str = json.dumps(result_for_ctx, ensure_ascii=False)
         if len(result_str) > 1500:
             result_str = result_str[:1500] + "... (troncato)"
@@ -457,10 +458,9 @@ def run(task: str, fqbn: str = "esp32:esp32:esp32", max_steps: int = 30) -> dict
         print(f"[ToolAgent] Result: {result_str[:200]}", flush=True)
 
         messages.append({"role": "assistant", "content": raw})
-        messages.append({"role": "user", "content":
-            f"Risultato {tool_name}:\n{result_str}"})
+        messages.append({"role": "user", "content": f"Risultato {tool_name}:\n{result_str}"})
 
-    dashboard.run_end(False, f"Max {max_steps} step raggiunto")
+    _dash("run_end", success=False, reason=f"Max {max_steps} step raggiunto")
     sess.cleanup()
     return {"success": False, "reason": f"Max steps ({max_steps}) raggiunto", "steps": max_steps}
 
@@ -472,11 +472,7 @@ if __name__ == "__main__":
     parser.add_argument("task", help="Task da eseguire")
     parser.add_argument("--fqbn", default="esp32:esp32:esp32")
     parser.add_argument("--max-steps", type=int, default=30)
-    parser.add_argument("--no-dashboard", action="store_true")
     args = parser.parse_args()
-
-    if not args.no_dashboard:
-        dashboard.start()
 
     result = run(args.task, fqbn=args.fqbn, max_steps=args.max_steps)
     print(f"\n{'='*50}")

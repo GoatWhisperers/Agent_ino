@@ -776,6 +776,43 @@ def grab_test():
         return jsonify({"error": str(e)}), 500
 
 
+@_app.post("/emit")
+def emit_route():
+    """Endpoint per subprocess che non hanno la dashboard attiva localmente."""
+    data = request.get_json() or {}
+    event_type = data.pop("type", "log")
+    ts = data.pop("ts", time.strftime("%H:%M:%S"))
+
+    # Gestione speciale per frame: path → base64
+    if event_type == "frame":
+        path = data.get("path", "")
+        if path and not data.get("b64"):
+            try:
+                with open(path, "rb") as f:
+                    data["b64"] = base64.b64encode(f.read()).decode()
+                ev = {"type": "frame", "ts": ts, **data}
+                with _frames_lock:
+                    _frames_cache.append(ev)
+                    if len(_frames_cache) > MAX_CACHED_FRAMES:
+                        _frames_cache.pop(0)
+                    _save_frames_cache(_frames_cache)
+                msg = f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                with _history_lock:
+                    _history.append(ev)
+                with _clients_lock:
+                    for q in list(_clients):
+                        try:
+                            q.put_nowait(msg)
+                        except queue.Full:
+                            pass
+                return jsonify({"ok": True})
+            except Exception as e:
+                return jsonify({"error": str(e)}), 500
+
+    _broadcast({"type": event_type, "ts": ts, **data})
+    return jsonify({"ok": True})
+
+
 @_app.post("/clear_frames")
 def clear_frames_route():
     """Svuota cache frame su disco e rimuove i frame dalla history."""
@@ -803,8 +840,12 @@ def run_task():
         # Usa il Python del venv corretto, non sys.executable (che potrebbe essere un altro progetto)
         venv_python = project_root / ".venv" / "bin" / "python3"
         python = str(venv_python) if venv_python.exists() else sys.executable
-        cmd = [python, "agent/tool_agent.py", task, "--fqbn", fqbn, "--no-dashboard"]
-        _agent_proc = subprocess.Popen(cmd, cwd=str(project_root))
+        cmd = [python, "agent/tool_agent.py", task, "--fqbn", fqbn]
+        log_file = open("/tmp/tool_agent.log", "w")
+        _agent_proc = subprocess.Popen(
+            cmd, cwd=str(project_root),
+            stdout=log_file, stderr=log_file
+        )
     return jsonify({"ok": True, "pid": _agent_proc.pid})
 
 
