@@ -1,0 +1,84 @@
+{
+  "tool": "remote_uploader",
+  "modulo": "agent.remote_uploader",
+  "hardware": {
+    "raspberry": "192.168.1.167 (lele / pippopippo33$$)",
+    "esp32_porta": "/dev/ttyUSB0",
+    "baud": 115200
+  },
+
+  "funzioni": {
+    "is_reachable": {
+      "firma": "is_reachable() -> bool",
+      "scopo": "Verifica che il Raspberry Pi sia raggiungibile via SSH",
+      "quando": "Prima di qualsiasi operazione remota"
+    },
+
+    "check_pio_libraries": {
+      "firma": "check_pio_libraries(library_names: list[str]) -> dict",
+      "scopo": "Verifica che le librerie esistano in ~/.platformio/lib/ sul Raspberry",
+      "output": {
+        "all_ok": "bool",
+        "missing": "list[str]",
+        "installed": "list[str]"
+      },
+      "note": "Chiama PRIMA di setup_pio_project. Librerie in ARDUINO_TO_PIO con valore '' sono built-in.",
+      "librerie_builtin": ["Wire", "SPI", "WiFi", "EEPROM", "BLE", "BluetoothSerial", "Preferences", "WebServer", "HTTPClient", "ArduinoOTA"]
+    },
+
+    "setup_pio_project": {
+      "firma": "setup_pio_project(task, ino_code, libraries, board='esp32:esp32:esp32') -> dict",
+      "scopo": "Crea cartella progetto PlatformIO sul Raspberry, scrive main.cpp, configura platformio.ini",
+      "input": {
+        "task": "str — nome task (usato per nome cartella)",
+        "ino_code": "str — codice sorgente .ino",
+        "libraries": "list[str] — nomi librerie Arduino da includere"
+      },
+      "output": {
+        "success": "bool",
+        "project_dir": "str — path remoto progetto (es. ~/projects/agente_xxx)",
+        "error": "str|None"
+      },
+      "CRITICO": "NON aggiunge lib_deps a platformio.ini (scaricherebbero da internet). Usa lib_extra_dirs=~/.platformio/lib"
+    },
+
+    "compile_pio": {
+      "firma": "compile_pio(project_dir, timeout=180) -> dict",
+      "output": {"success": "bool", "stdout": "str", "errors": "str"}
+    },
+
+    "upload_pio": {
+      "firma": "upload_pio(project_dir, port='/dev/ttyUSB0', timeout=60) -> dict",
+      "scopo": "Flasha il firmware sull'ESP32 via Raspberry",
+      "output": {"success": "bool", "stdout": "str", "error": "str|None"},
+      "PRIMA": "Esegui pkill -f esptool; pkill -f 'pio run' sul Raspberry per liberare la porta"
+    },
+
+    "read_serial_remote": {
+      "firma": "read_serial_remote(port='/dev/ttyUSB0', baud=115200, duration_sec=10) -> dict",
+      "output": {"output": "str", "lines": "list[str]", "error": "str|None"},
+      "note": "Usa sempre reset_input_buffer() internamente. Aspetta 3s dopo upload prima di leggere."
+    }
+  },
+
+  "flusso_esp32": [
+    "1. is_reachable()  → STOP se False",
+    "2. check_pio_libraries(libraries)  → STOP se missing",
+    "3. pkill stuck sul Raspberry: _ssh('pkill -f esptool; pkill -f pio run')",
+    "4. setup_pio_project(task, ino_code, libraries)",
+    "5. compile_pio(project_dir)",
+    "6. upload_pio(project_dir, port='/dev/ttyUSB0')",
+    "7. sleep(3)  — attendi boot ESP32",
+    "8. read_serial_remote(...)  — oppure grab.grab_now() per visione"
+  ],
+
+  "mapping_librerie": {
+    "Adafruit SSD1306": "adafruit/Adafruit SSD1306",
+    "Adafruit GFX Library": "adafruit/Adafruit GFX Library",
+    "Adafruit BusIO": "adafruit/Adafruit BusIO",
+    "DHT sensor library": "adafruit/DHT sensor library",
+    "ArduinoJson": "bblanchon/ArduinoJson",
+    "FastLED": "fastled/FastLED",
+    "PubSubClient": "knolleary/PubSubClient"
+  }
+}

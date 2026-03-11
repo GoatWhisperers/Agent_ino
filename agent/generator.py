@@ -8,8 +8,7 @@ sys.path.insert(0, "/home/lele/codex-openai/programmatore_di_arduini")
 
 from agent.m40_client import M40Client  # noqa: E402
 
-SYSTEM_GLOBALS = """/no_think
-Sei un esperto programmatore Arduino.
+SYSTEM_GLOBALS = """Sei un esperto programmatore Arduino.
 Genera SOLO la sezione globals di uno sketch .ino:
 - #include necessari
 - #define e costanti
@@ -37,16 +36,20 @@ Il 4° parametro è il pin di reset, NON l'indirizzo I2C. USA SEMPRE -1:
 L'indirizzo I2C (0x3C) va in display.begin(SSD1306_SWITCHCAPVCC, 0x3C).
 """
 
-SYSTEM_FUNCTION = """/no_think
-Sei un esperto programmatore Arduino.
+SYSTEM_FUNCTION = """Sei un esperto programmatore Arduino.
 Scrivi UNA SOLA funzione C++ completa per Arduino.
 Output: SOLO il codice della funzione (firma + corpo), senza markdown, senza spiegazioni.
 Includi la firma (es. "void setup() {") e la chiusura "}".
 Il codice deve compilare senza errori.
+
+FIRME CORRETTE (usale sempre):
+- getTextBounds: display.getTextBounds(text, 0, 0, &x1, &y1, &tw, &th)
+  Tipi: int16_t x1, y1; uint16_t tw, th;  — NON usare int per questi parametri
+- NON esiste display.textWidth() — usare getTextBounds
+- Le funzioni utente NON sono metodi di display — chiamarle senza "display."
 """
 
-SYSTEM_PROMPT = """/no_think
-Sei un esperto programmatore Arduino.
+SYSTEM_PROMPT = """Sei un esperto programmatore Arduino.
 Quando generi codice:
 - Produci SOLO codice Arduino valido (.ino)
 - Includi tutti gli #include necessari
@@ -75,8 +78,7 @@ Per il debug visivo, includi nel codice segnali seriali VCAP:
 Se il piano specifica vcap_frames=0, ometti i segnali VCAP.
 """
 
-SYSTEM_PATCH = """/no_think
-Sei un esperto programmatore Arduino.
+SYSTEM_PATCH = """Sei un esperto programmatore Arduino.
 Correggi SOLO gli errori segnalati nel codice.
 
 REGOLE FONDAMENTALI:

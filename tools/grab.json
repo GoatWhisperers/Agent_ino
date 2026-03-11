@@ -1,0 +1,57 @@
+{
+  "tool": "grab",
+  "modulo": "agent.grab",
+  "hardware": {
+    "webcam": "CSI IMX219 su /dev/video0 sul Raspberry",
+    "deploy_path": "~/grab_tool.py"
+  },
+
+  "funzioni": {
+    "deploy": {
+      "firma": "deploy() -> dict",
+      "scopo": "Copia grab_tool.py sul Raspberry se non aggiornato",
+      "output": {"ok": "bool", "deployed": "bool (True=copiato, False=già aggiornato)", "error": "str|None"},
+      "quando": "Prima di grab_now (lo chiama già internamente)"
+    },
+
+    "grab_now": {
+      "firma": "grab_now(n_frames=3, interval_ms=500, width=640, height=480, quality=75, timeout=60) -> dict",
+      "scopo": "Cattura N frame dalla webcam CSI in modalità immediata",
+      "output": {
+        "ok": "bool",
+        "frame_paths": "list[str] — path locali /tmp/grab_local_*/frame_*.jpg",
+        "n_frames": "int",
+        "error": "str|None"
+      },
+      "QUANDO_USARE": "DOPO upload firmware (non prima — porta /dev/ttyUSB0 occupata)",
+      "parametri_consigliati": {
+        "n_frames": "2-5 frame per valutazione display",
+        "interval_ms": "500-2000ms tra frame",
+        "width": 640,
+        "height": 480
+      },
+      "esempio": "from agent.grab import grab_now\nr = grab_now(n_frames=3, interval_ms=1000)\nif r['ok']: print('Frame:', r['frame_paths'])"
+    },
+
+    "start_serial_grab": {
+      "firma": "start_serial_grab(session_id, n_frames, interval_ms, ...) -> dict",
+      "scopo": "Avvia sessione grab comandata da segnali VCAP seriali dell'ESP32",
+      "ATTENZIONE": "NON usare se upload non ancora fatto — occupa /dev/ttyUSB0",
+      "output": {"ok": "bool", "session_id": "str", "error": "str|None"}
+    },
+
+    "collect_grab": {
+      "firma": "collect_grab(session_id, timeout=60) -> dict",
+      "scopo": "Raccoglie frame da sessione serial grab avviata con start_serial_grab",
+      "output": {"ok": "bool", "frame_paths": "list[str]", "n_frames": "int", "error": "str|None"}
+    }
+  },
+
+  "flusso_visione": [
+    "1. upload_pio(...)  — upload firmware prima",
+    "2. sleep(3)  — attendi boot ESP32",
+    "3. grab_now(n_frames=3)  — cattura frame",
+    "4. for fp in frame_paths: dashboard.frame(fp, label='frame N')  — mostra nella UI",
+    "5. evaluator.evaluate_visual(task, frame_paths, serial_output, code)  — valuta"
+  ]
+}

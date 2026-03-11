@@ -9,8 +9,7 @@ sys.path.insert(0, "/home/lele/codex-openai/programmatore_di_arduini")
 
 from agent.mi50_client import MI50Client  # noqa: E402
 
-_PLAN_SYSTEM = """/no_think
-Sei un architetto software esperto di Arduino e sistemi embedded.
+_PLAN_SYSTEM = """Sei un architetto software esperto di Arduino e sistemi embedded.
 Il tuo output deve essere ESCLUSIVAMENTE un oggetto JSON valido. Nessun testo prima o dopo.
 
 STRUTTURA OBBLIGATORIA:
@@ -37,8 +36,7 @@ ESEMPIO per "OLED SSD1306 mostra temperatura":
 Rispondi SOLO con il JSON. Zero testo aggiuntivo.
 """
 
-_PLAN_FUNCTIONS_SYSTEM = """/no_think
-Sei un architetto software esperto di Arduino e sistemi embedded.
+_PLAN_FUNCTIONS_SYSTEM = """Sei un architetto software esperto di Arduino e sistemi embedded.
 Dato un task, produci il piano dettagliato delle FUNZIONI da implementare.
 Output: ESCLUSIVAMENTE un oggetto JSON valido. Nessun testo prima o dopo.
 
@@ -77,15 +75,23 @@ ESEMPIO per "OLED mostra temperatura":
 Rispondi SOLO con il JSON. Zero testo aggiuntivo.
 """
 
-_ANALYZE_ERRORS_SYSTEM = """/no_think
-Sei un esperto di compilazione C++ e Arduino.
+_ANALYZE_ERRORS_SYSTEM = """Sei un esperto di compilazione C++ e Arduino/ESP32 con conoscenza profonda delle librerie Adafruit.
 Il tuo output deve essere ESCLUSIVAMENTE un oggetto JSON valido. Nessun testo prima o dopo.
 
 STRUTTURA OBBLIGATORIA:
 {"analysis":"...","fix_hints":[]}
 
-- analysis: stringa, causa degli errori spiegata chiaramente
-- fix_hints: array di stringhe, modifiche concrete da fare al codice
+- analysis: stringa, causa degli errori spiegata chiaramente con la firma CORRETTA da usare
+- fix_hints: array di stringhe, modifiche concrete e PRECISE da fare al codice
+
+FIRME CORRETTE DA CONOSCERE (usale sempre quando pertinenti):
+- getTextBounds: void getTextBounds(const char *str, int16_t x, int16_t y, int16_t *x1, int16_t *y1, uint16_t *w, uint16_t *h)
+  Dichiarare: int16_t x1, y1; uint16_t tw, th;
+  Chiamare:   display.getTextBounds(text, 0, 0, &x1, &y1, &tw, &th);
+  Poi:        int px = (SCREEN_W - (int)tw) / 2;  int py = (SCREEN_H - (int)th) / 2;
+- NON esiste display.textWidth() — usare sempre getTextBounds
+- Le funzioni utente (es. drawTextCentrato()) sono AUTONOME, NON metodi di Adafruit_SSD1306 — chiamarle senza "display."
+- display.begin(): display.begin(SSD1306_SWITCHCAPVCC, 0x3C)
 
 Rispondi SOLO con il JSON. Zero testo aggiuntivo.
 """

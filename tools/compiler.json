@@ -1,0 +1,59 @@
+{
+  "tool": "compiler",
+  "modulo": "agent.compiler",
+  "REGOLA_CRITICA": "Chiama SEMPRE check_libraries PRIMA di generate_code. Se mancano librerie, STOP e avvisa l'utente.",
+
+  "funzioni": {
+    "check_libraries": {
+      "firma": "check_libraries(library_names: list[str]) -> dict",
+      "scopo": "Verifica che le librerie arduino-cli siano installate localmente. Chiama PRIMA di generare codice.",
+      "input": "lista nomi librerie es. ['Adafruit SSD1306', 'Wire']",
+      "output": {
+        "all_ok": "bool — True se tutte installate",
+        "missing": "list[str] — librerie mancanti",
+        "installed": "list[str] — librerie presenti"
+      },
+      "note": "Wire, SPI, EEPROM, WiFi, ESP32 sono built-in — sempre OK",
+      "esempio": "from agent.compiler import check_libraries\nr = check_libraries(['Adafruit SSD1306'])\nif not r['all_ok']: print('MANCANTI:', r['missing'])"
+    },
+
+    "compile_sketch": {
+      "firma": "compile_sketch(sketch_path: str, fqbn: str) -> dict",
+      "scopo": "Compila con arduino-cli. sketch_path = path alla DIRECTORY (non al file .ino)",
+      "input": {
+        "sketch_path": "path assoluto alla directory dello sketch (deve contenere un .ino con stesso nome dir)",
+        "fqbn": "es. 'esp32:esp32:esp32' o 'arduino:avr:uno'"
+      },
+      "output": {
+        "success": "bool",
+        "binary_path": "str|None — path al .hex se successo",
+        "errors": "list[dict] — {file, line, col, type, message}",
+        "warnings": "list[dict]",
+        "raw_stdout": "str",
+        "raw_stderr": "str"
+      },
+      "timeout": "120s"
+    },
+
+    "fix_known_includes": {
+      "firma": "fix_known_includes(code: str) -> str",
+      "scopo": "Corregge automaticamente include noti errati PRIMA di compilare",
+      "correzioni": {
+        "#include <SSD1306.h>": "#include <Adafruit_SSD1306.h>",
+        "#include <GFX.h>": "#include <Adafruit_GFX.h>",
+        "#include <U8glib.h>": "#include <U8g2lib.h>"
+      },
+      "quando": "Sempre, prima di compile_sketch"
+    }
+  },
+
+  "flusso_corretto": [
+    "1. plan = orchestrator.plan_task(task)  → ottieni libraries_needed",
+    "2. check_libraries(plan['libraries_needed'])  → STOP se missing",
+    "3. [opzionale per ESP32] remote_uploader.check_pio_libraries(libraries)  → STOP se missing",
+    "4. code = generator.generate_*()  → genera codice",
+    "5. code = fix_known_includes(code)  → correggi include",
+    "6. result = compile_sketch(sketch_dir, fqbn)  → compila",
+    "7. if not result['success']: analizza errori → patcha → ricompila (max 5x)"
+  ]
+}

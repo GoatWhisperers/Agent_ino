@@ -1,0 +1,61 @@
+{
+  "tool": "generator",
+  "modulo": "agent.generator.Generator",
+  "gpu": "M40 (porta 11435) — generazione codice veloce",
+
+  "uso": "from agent.generator import Generator\ngen = Generator()\ncode = gen.generate_globals(nb)['code']",
+
+  "funzioni": {
+    "generate_globals": {
+      "firma": "generate_globals(nb: Notebook) -> dict",
+      "scopo": "Genera #include, #define, variabili globali — PRIMA delle funzioni",
+      "output": {"code": "str — codice globals", "thinking": "str"},
+      "REGOLE_INCLUDE": [
+        "Solo include usati davvero",
+        "Adafruit_SSD1306.h NON SSD1306.h",
+        "Adafruit_GFX.h NON GFX.h",
+        "SSD1306: costruttore display(W, H, &Wire, -1)  ← rst_pin SEMPRE -1",
+        "I2C addr in display.begin(SSD1306_SWITCHCAPVCC, 0x3C) NON nel costruttore"
+      ]
+    },
+
+    "generate_function": {
+      "firma": "generate_function(nome: str, nb: Notebook) -> dict",
+      "scopo": "Genera una singola funzione; nb fornisce globals + funzioni già scritte come contesto",
+      "output": {"code": "str — codice funzione completa", "thinking": "str"},
+      "ordine": "Generare nell'ordine da nb.funzioni_ordinate() — dipendenze prima"
+    },
+
+    "generate_code": {
+      "firma": "generate_code(task, context, board, vcap_frames, vcap_interval_ms) -> dict",
+      "scopo": "FALLBACK: genera sketch monolitico completo in una volta sola",
+      "quando": "Solo se plan_functions() ritorna funzioni=[]",
+      "output": {"code": "str", "thinking": "str", "raw": "str"}
+    },
+
+    "patch_code": {
+      "firma": "patch_code(code: str, errors: list, analysis: str) -> dict",
+      "scopo": "Corregge errori nel codice esistente. USA SYSTEM_PATCH (non SYSTEM_PROMPT).",
+      "REGOLA": "Rimuove SOLO include che causano errori. NON aggiunge nuovi include.",
+      "output": {"code": "str — codice corretto", "thinking": "str", "raw": "str"},
+      "label": "M40→Patcher (distinto da generatore nel log)"
+    }
+  },
+
+  "flusso_per_funzione": [
+    "1. nb = Notebook(task, board)",
+    "2. nb.set_funzioni(globals_hint, funzioni)  — da plan_functions()",
+    "3. globals_result = generate_globals(nb); nb.globals_code = globals_result['code']",
+    "4. for func in nb.funzioni_ordinate():",
+    "     nb.update_funzione(func['nome'], 'generating')",
+    "     result = generate_function(func['nome'], nb)",
+    "     nb.update_funzione(func['nome'], 'done', result['code'])",
+    "5. code, _ = nb.assemble()  — assembla il .ino finale"
+  ],
+
+  "flusso_monolitico": [
+    "1. result = generate_code(task, context, board, vcap_frames, vcap_interval_ms)",
+    "2. code = fix_known_includes(result['code'])",
+    "3. compile_sketch(...)"
+  ]
+}

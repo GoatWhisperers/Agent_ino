@@ -15,13 +15,13 @@ sys.path.insert(0, "/home/lele/codex-openai/programmatore_di_arduini")
 
 from agent.mi50_client import MI50Client  # noqa: E402
 
-_SIMILAR_SYSTEM = """/no_think
+_SIMILAR_SYSTEM = """
 Sei un esperto Arduino. Analizza gli snippet di codice simili al task e
 produci un riassunto di cosa è utile riutilizzare e cosa va adattato.
 Sii conciso e pratico. Risposta in italiano, testo libero (non JSON).
 """
 
-_PROJECT_STATE_SYSTEM = """/no_think
+_PROJECT_STATE_SYSTEM = """
 Sei un esperto Arduino. Analizza il codice fornito e produci una
 valutazione dello stato del progetto.
 Rispondi SEMPRE in JSON con questa struttura esatta:
@@ -33,7 +33,7 @@ Rispondi SEMPRE in JSON con questa struttura esatta:
 Non aggiungere testo fuori dal JSON.
 """
 
-_MODIFY_SYSTEM = """/no_think
+_MODIFY_SYSTEM = """
 Sei un esperto Arduino. Dato un codice funzionante e una richiesta di modifica,
 analizza cosa va cambiato e cosa va mantenuto.
 Rispondi SEMPRE in JSON con questa struttura esatta:

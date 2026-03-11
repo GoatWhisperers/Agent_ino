@@ -1,0 +1,29 @@
+{
+  "tool": "dashboard",
+  "modulo": "agent.dashboard",
+  "url": "http://localhost:7700",
+  "scopo": "UI real-time con streaming token, badge funzioni, frame webcam, log seriale",
+
+  "avvio": "import agent.dashboard as dashboard\ndashboard.start()  # avvia Flask in thread daemon (idempotente)",
+
+  "eventi": {
+    "task_start": "dashboard.task_start(task: str, board: str)",
+    "phase": "dashboard.phase(name: str, detail: str = '')\n# nomi fase: 'analyst'|'planning'|'func-plan'|'generate'|'compile'|'upload'|'eval'|'learn'",
+    "token": "dashboard.token(source: str, text: str)  # streaming token singolo",
+    "thinking_start": "dashboard.thinking_start()",
+    "thinking_end": "dashboard.thinking_end()",
+    "func_start": "dashboard.func_start(nome: str)",
+    "func_done": "dashboard.func_done(nome: str, righe: int)",
+    "compile_result": "dashboard.compile_result(success: bool, errors: list, attempt: int)",
+    "serial_output": "dashboard.serial_output(lines: list[str])",
+    "frame": "dashboard.frame(path: str, label: str)  # path locale JPG — salva su disco + broadcast",
+    "notebook_update": "dashboard.notebook_update(summary: str, progress: str)",
+    "run_end": "dashboard.run_end(success: bool, reason: str)"
+  },
+
+  "note": [
+    "start() è idempotente — chiamare all'inizio di ogni run",
+    "frame() salva su workspace/.frames_cache.json (max 20, persistenti tra sessioni)",
+    "Token streaming: chiamare dashboard.token() per ogni chunk generato da MI50/M40"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "tool": "notebook",
+  "modulo": "agent.notebook.Notebook",
+  "scopo": "Taccuino operativo: traccia piano, stato funzioni, assembla .ino finale",
+
+  "costruttore": "nb = Notebook(task: str, board: str)",
+
+  "metodi": {
+    "set_plan": "nb.set_plan(piano: list[str], dipendenze: list[str], note_tecniche: list[str])",
+    "set_funzioni": "nb.set_funzioni(globals_hint: str, funzioni: list[dict])",
+    "funzioni_ordinate": "nb.funzioni_ordinate() -> list[dict]  # topological sort: setup→helpers→loop",
+    "update_funzione": "nb.update_funzione(nome: str, stato: str, codice: str = '')\n# stati: 'pending' | 'generating' | 'done' | 'error'",
+    "assemble": "code, line_map = nb.assemble()  # assembla .ino da globals + funzioni",
+    "context_for_globals": "nb.context_for_globals() -> str  # contesto per generate_globals()",
+    "context_for_function": "nb.context_for_function(nome: str) -> str  # contesto per generate_function()",
+    "context_for_generator": "nb.context_for_generator() -> str  # contesto per generate_code() monolitico",
+    "add_errore": "nb.add_errore(errore: str, fix: str)  # traccia errori/fix nel ciclo compile",
+    "summary": "nb.summary() -> str  # stringa leggibile stato attuale",
+    "progress": "nb.progress() -> str  # 'N/M funzioni completate'",
+    "save": "nb.save(path: Path)  # salva notebook.json",
+    "load": "Notebook.load(path: Path) -> Notebook  # carica da file"
+  },
+
+  "struttura_funzione": {
+    "nome": "str — es. 'setup', 'loop', 'displayEmoticon'",
+    "firma": "str — es. 'void setup()'",
+    "compito": "str — descrizione cosa fa",
+    "dipende_da": "list[str] — nomi funzioni da cui dipende",
+    "stato": "str — pending|generating|done|error",
+    "codice": "str — codice generato (vuoto se pending)"
+  },
+
+  "flusso": [
+    "nb = Notebook(task, board)",
+    "nb.set_plan(key_points, libraries, note_tecniche)",
+    "nb.set_funzioni(globals_hint, funzioni)  ← da plan_functions()",
+    "nb.globals_code = generate_globals(nb)['code']",
+    "for f in nb.funzioni_ordinate(): nb.update_funzione(f['nome'], 'done', code)",
+    "sketch_code, _ = nb.assemble()",
+    "nb.save(sketch_dir / 'notebook.json')"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "tool": "analyst",
+  "modulo": "agent.analyst.Analyst",
+  "gpu": "MI50 (porta 11434)",
+  "quando": "Fase 0, prima del planning",
+
+  "uso": "from agent.analyst import Analyst\na = Analyst()",
+
+  "funzioni": {
+    "analyze_similar_code": {
+      "firma": "analyze_similar_code(task: str, similar_codes: list[dict]) -> str",
+      "scopo": "Analizza snippet simili trovati nel DB e spiega cosa riusare",
+      "input": {
+        "similar_codes": "[{'task_description': str, 'code': str, 'board': str}, ...]"
+      },
+      "output": "str — testo con analisi e suggerimenti da passare all'orchestrator come context"
+    },
+
+    "analyze_project_state": {
+      "firma": "analyze_project_state(project_dir: str) -> dict",
+      "scopo": "Analizza stato di un progetto parziale (mode=CONTINUE)",
+      "output": {
+        "code": "str — codice esistente",
+        "status": "str — 'partial'|'broken'|'working'",
+        "summary": "str",
+        "missing": "str — cosa manca per completare",
+        "thinking": "str"
+      }
+    },
+
+    "analyze_for_modify": {
+      "firma": "analyze_for_modify(code: str, modification_request: str) -> dict",
+      "scopo": "Analizza modifica richiesta su codice funzionante (mode=MODIFY)",
+      "output": {
+        "what_to_change": "str",
+        "what_to_keep": "str",
+        "approach": "str",
+        "thinking": "str"
+      }
+    }
+  }
+}

@@ -84,6 +84,116 @@ def fix_known_includes(code: str) -> str:
     return code
 
 
+# ── Metodi validi di Adafruit_SSD1306 / Adafruit_GFX ─────────────────────────
+_SSD1306_METHODS = {
+    "begin", "display", "clearDisplay", "drawPixel", "drawLine", "drawRect",
+    "fillRect", "drawCircle", "fillCircle", "drawTriangle", "fillTriangle",
+    "drawRoundRect", "fillRoundRect", "drawBitmap", "setCursor", "setTextColor",
+    "setTextSize", "setTextWrap", "print", "println", "write", "getTextBounds",
+    "setRotation", "invertDisplay", "dim", "startscrollright", "startscrollleft",
+    "startscrolldiagright", "startscrolldiagleft", "stopscroll",
+    "width", "height", "fillScreen", "setFont", "setContrast", "oled_command",
+}
+
+
+def _fix_display_userfunc_calls(code: str) -> str:
+    """
+    Rimuove 'display.' da funzioni che NON sono metodi di Adafruit_SSD1306.
+    Es: display.drawTextCentrato() → drawTextCentrato()
+    """
+    def _replace(m):
+        method = m.group(1)
+        if method not in _SSD1306_METHODS:
+            return method + "("   # rimuovi "display."
+        return m.group(0)         # lascia invariato
+
+    return re.sub(r"\bdisplay\.(\w+)\s*\(", _replace, code)
+
+
+def _fix_getTextBounds_call(code: str) -> str:
+    """
+    Corregge chiamate errate a getTextBounds:
+    - display.textWidth(text, &w, &h)  → getTextBounds a 7 arg con tipi corretti
+    - getTextBounds a 5 arg            → aggiunge i 2 parametri out x1,y1 mancanti
+    - dichiarazioni int vicine         → int16_t/uint16_t corretti
+    """
+    # Fix 1: display.textWidth(expr, &varW, &varH) → non esiste, replace con getTextBounds
+    m = re.search(r"display\.textWidth\s*\(([^,]+),\s*&(\w+),\s*&(\w+)\)", code)
+    if m:
+        expr, varW, varH = m.group(1).strip(), m.group(2), m.group(3)
+        # Aggiusta dichiarazione delle variabili (int varW, varH → tipi corretti)
+        code = re.sub(
+            r"\bint\b(\s+)" + varW + r"\s*,\s*" + varH + r"\s*;",
+            f"int16_t _gbx1, _gby1; uint16_t {varW}, {varH};",
+            code,
+        )
+        code = re.sub(
+            r"\bint\b(\s+)" + varH + r"\s*,\s*" + varW + r"\s*;",
+            f"int16_t _gbx1, _gby1; uint16_t {varH}, {varW};",
+            code,
+        )
+        # Replace la chiamata textWidth con getTextBounds 7-arg
+        code = re.sub(
+            r"display\.textWidth\s*\([^)]+\)",
+            f"display.getTextBounds({expr}, 0, 0, &_gbx1, &_gby1, &{varW}, &{varH})",
+            code,
+        )
+
+    # Fix 2: getTextBounds a 5 arg (mancano x1,y1 out)
+    # Pattern: display.getTextBounds(text, x, y, &w, &h) → 7 arg
+    def _fix_5arg(m2):
+        text_arg = m2.group(1)
+        x_arg    = m2.group(2)
+        y_arg    = m2.group(3)
+        varW     = m2.group(4)
+        varH     = m2.group(5)
+        return f"display.getTextBounds({text_arg}, {x_arg}, {y_arg}, &_gbx1, &_gby1, &{varW}, &{varH})"
+
+    code = re.sub(
+        r"display\.getTextBounds\s*\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*&(\w+),\s*&(\w+)\s*\)",
+        _fix_5arg,
+        code,
+    )
+
+    # Fix 3: assicura che _gbx1, _gby1 siano dichiarati se si usa getTextBounds
+    if "display.getTextBounds" in code and "_gbx1" in code and "int16_t _gbx1" not in code:
+        # Inserisce dichiarazione prima della prima chiamata
+        code = re.sub(
+            r"(display\.getTextBounds\s*\()",
+            "int16_t _gbx1, _gby1;\r\n  \\1",
+            code,
+            count=1,
+        )
+
+    return code
+
+
+# Mappa: pattern nel messaggio di errore → funzione di fix
+_API_ERROR_FIXES = [
+    ("has no member named 'textWidth'",          _fix_getTextBounds_call),
+    ("no matching function for call to 'Adafruit_SSD1306::getTextBounds", _fix_getTextBounds_call),
+    ("has no member named '",                     _fix_display_userfunc_calls),
+]
+
+
+def fix_known_api_errors(code: str, errors: list[dict]) -> str:
+    """
+    Applica fix hardcoded basandosi sui messaggi di errore del compilatore.
+    Chiamare PRIMA di passare il codice al patcher LLM e PRIMA di compilare.
+
+    errors: lista di dict {"message": str, ...} da compile_sketch()
+    Ritorna il codice con i fix applicati.
+    """
+    applied = set()
+    for err in errors:
+        msg = err.get("message", "")
+        for pattern, fix_fn in _API_ERROR_FIXES:
+            if pattern in msg and fix_fn not in applied:
+                code = fix_fn(code)
+                applied.add(fix_fn)
+    return code
+
+
 # Librerie built-in del framework Arduino/ESP32 (non appaiono in arduino-cli lib list)
 _BUILTIN_LIBS = {
     "wire", "spi", "eeprom", "sd", "servo", "software serial", "softwareserial",

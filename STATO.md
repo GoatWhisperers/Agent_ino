@@ -1,191 +1,224 @@
 # STATO — Programmatore di Arduini
 
 > Leggere SUBITO all'inizio di ogni sessione.
-> Ultima modifica: 2026-03-11 sera
+> Ultima modifica: 2026-03-11 pomeriggio
 
 ---
 
 ## DOVE SIAMO RIMASTI
 
-**Task OLED emoticon COMPLETATO** — ESP32 mostra :) :( :D in sequenza automatica ogni 2s,
-comandi seriali `happy` / `sad` / `big` funzionanti, verificato via webcam CSI.
+**Tool Agent implementato** — l'agente usa ora un loop ReAct in cui MI50 decide
+autonomamente quali tools chiamare e quando. La webcam viene usata senza hardcoding
+nel loop: il modello la chiama da solo quando il task lo richiede.
 
-Pipeline end-to-end completata manualmente. Tutte le fix applicate e documentate.
-Dashboard attiva su `http://localhost:7700` con le 4 foto del display OLED caricate persistentemente.
+**Dashboard aggiornata** — taskbar Start/Stop, bottone grab webcam, pulizia automatica
+al Play, stato Start/Stop corretto in base allo stato del processo.
 
-**Prossimo step**: run completa end-to-end con nuovo task per testare tutte le fix insieme.
-
----
-
-## COSA FUNZIONA
-
-| Componente | Stato | Note |
-|---|---|---|
-| Fase 0 — Analyst | ✅ | funziona |
-| Fase 1 — Orchestrator (plan_task) | ✅ | `note_tecniche` + `vcap_frames` nel piano |
-| Fase 1b — Orchestrator (plan_functions) | ✅ | piano funzioni con `required_keys` fix |
-| Fase 2 — Generator globals (M40) | ✅ | SYSTEM_GLOBALS con REGOLA INCLUDE |
-| Fase 2 — Generator funzione (M40) | ✅ | globals → helpers → setup → loop |
-| Fase 2 — Generator monolitico (fallback) | ✅ | ctx 16384 |
-| Fase 2b — Patcher (M40) | ✅ | SYSTEM_PATCH dedicato, non aggiunge include inutili |
-| Fase 3 — Compiler arduino-cli | ✅ | esp32:esp32@3.3.7, fatal error parsato |
-| Fase 3 — fix_known_includes() | ✅ | SSD1306.h → Adafruit_SSD1306.h auto-fix |
-| Fase 3 — check_libraries() | ✅ | verifica libs prima della run, si ferma se mancano |
-| Fase 4 — PlatformIO + Upload Raspberry | ✅ | upload prima del grab (fix porta occupata) |
-| Fase 4 — Lettura seriale post-boot | ✅ | reset_input_buffer() + attesa 3s |
-| Fase 5 — Evaluator seriale | ⚠️ | loop() silenzioso → skip evaluation (TODO: aggiungi READY) |
-| Fase 5 — Evaluator VCAP | ✅ | grab_now() dopo upload, frame → dashboard → MI50 |
-| Fase 6 — Learner | ❌ | non testato |
-| Notebook operativo | ✅ | `agent/notebook.py` |
-| Dashboard real-time | ✅ | porta 7700, frame persistenti su disco, streaming token |
-| MI50 Docker | ✅ | enable_thinking=False funziona, mount corretto |
+**In corso**: primo test completo del tool_agent con task astronave OLED.
 
 ---
 
 ## ARCHITETTURA CORRENTE
 
 ### Modelli e GPU
-- **MI50** (AMD gfx906/Vega20, 32 GB VRAM, ROCm 6.2): Qwen3.5-9B bfloat16, PyTorch eager, porta 11434
-  - `attn_implementation="eager"` — no Triton, no flash-attn (gfx906 non supporta)
-  - `enable_thinking=False` in `apply_chat_template` → risposta ~5 min
-  - `MAX_INPUT_TOKENS = 6144` (OOM prevention)
-  - Gira dentro Docker con GPU passthrough zero-overhead
-- **M40** (NVIDIA sm_52, 11.5 GB VRAM, CUDA): Qwen3.5-9B Q5_K_M GGUF, llama-server, porta 11435
-  - `--ctx-size 16384` (6.5 GB modello + ~2.3 GB KV cache)
-
-### Flusso codice (aggiornato)
-1. **Fase 0** — Analyst MI50: recupera snippet KB, analizza cosa riusare
-2. **Fase 1** — Orchestrator MI50: `plan_task()` → approccio, librerie, vcap_frames
-3. **Fase 1b** — Orchestrator MI50: `plan_functions()` → lista funzioni con firme
-4. **Fase 2** — Generator M40: `generate_globals()` + `generate_function(f)` per ogni f
-5. **Fase 3** — Compiler: arduino-cli → errori → MI50 analizza → M40 patcha (max 5x)
-6. **Fase 4** — Upload: PlatformIO su Raspberry → boot ESP32 → lettura seriale
-7. **Fase 4b** — VCAP: `grab_now()` cattura N frame webcam → SCP → dashboard
-8. **Fase 5** — Evaluator MI50: serial output + frame → valutazione → suggerimenti
-9. **Fase 6** — Learner: salva snippet nel KB (non testato)
-
-### Dashboard
-- Avvio automatico a ogni `python agent/loop.py`
-- Avvio manuale: `python -c "import agent.dashboard as d; d.start(); import time; time.sleep(9999)"`
-- Accessibile su `http://localhost:7700`
-- Contenuto: streaming token MI50/M40, badge funzioni ⚙→✓, frame webcam (clic per ingrandire), log seriale
+- **MI50** (AMD gfx906/Vega20, 32 GB VRAM, ROCm 6.2): Qwen3.5-9B bfloat16, porta 11434
+  - Reasoning, planning, analisi errori, valutazione — con thinking abilitato
+  - `MAX_INPUT_TOKENS = 6144`, `enable_thinking=True` ovunque
+  - Gira dentro Docker con GPU passthrough
+- **M40** (NVIDIA sm_52, 11.5 GB VRAM, CUDA): Qwen3.5-9B Q5_K_M GGUF, porta 11435
+  - Code generation veloce — `--ctx-size 16384`
 
 ### Hardware
 | Dispositivo | Dettagli | Stato |
 |---|---|---|
-| Raspberry Pi 3B | YOUR_RPI_IP, pwd: YOUR_PASSWORD | ✅ |
+| Raspberry Pi 3B | 192.168.1.167, pwd: pippopippo33$$ | ✅ |
 | ESP32 NodeMCU | /dev/ttyUSB0 su Raspberry, baud 115200 | ✅ |
 | OLED SSD1306 128x64 | SDA=GPIO21, SCL=GPIO22, I2C addr=0x3C | ✅ |
 | Webcam CSI (IMX219) | /dev/video0 su Raspberry | ✅ |
 
-**Librerie PlatformIO su Raspberry** (pre-installate in `~/.platformio/lib/`):
+### Librerie PlatformIO su Raspberry (pre-installate)
 - Adafruit_SSD1306, Adafruit-GFX-Library, Adafruit_BusIO
-- platformio.ini DEVE avere: `lib_extra_dirs = ~/.platformio/lib`
 
 ---
 
-## BUG NOTI / TODO
+## DUE MODALITÀ DI RUN
 
-### [PRIORITÀ 1] Evaluator skip su loop() silenzioso
-- **Problema**: sketch che non stampano nulla in loop() vengono valutati come "empty serial" → skip
-- **Fix**: assicurarsi che SYSTEM_PROMPT/PATCH preservino `Serial.println("READY")` in setup()
-- **File**: `agent/generator.py` SYSTEM_PROMPT — la regola c'è, verificare che il patcher non la rimuova
-
-### [PRIORITÀ 2] Testare run completa end-to-end
-- Le fix 10/11/12 (VCAP port conflict, pkill stuck, frame persistenti) non sono ancora state
-  testate in una run automatica completa — solo in test manuali
-- Fare una run con nuovo task OLED o LED per verificare tutto il pipeline
-
-### [PRIORITÀ 3] Testare Learner (Fase 6)
-- Non testato in nessuna run completa
-
-### [FIX APPLICATI QUESTA SESSIONE — già nel codice]
-- ✅ pkill esptool/pio prima di ogni upload (`loop.py`)
-- ✅ VCAP: upload prima, poi grab_now (`loop.py`)
-- ✅ Regola rst_pin=-1 SSD1306 in SYSTEM_GLOBALS e FuncPlanner (`generator.py`, `orchestrator.py`)
-- ✅ Dashboard frame persistenti su disco (`dashboard.py`, `workspace/.frames_cache.json`)
-
----
-
-## COMANDI RAPIDI
+### 1. Tool Agent (NUOVO — preferito)
+`agent/tool_agent.py` — loop ReAct dove MI50 decide autonomamente:
+- Quali tools chiamare e in che ordine
+- Se e quando usare la webcam
+- Quanti tentativi di patch fare
+- Quando salvare nel DB
 
 ```bash
-# Avvio tutto (SEMPRE usare questo)
-cd /home/lele/codex-openai/programmatore_di_arduini && source .venv/bin/activate
-bash agent/start_servers.sh
+python agent/tool_agent.py "task" --fqbn esp32:esp32:esp32
+```
 
-# Stato server
-curl -s localhost:11434/health && curl -s localhost:11435/health
+**Tools disponibili al modello:**
+- `list_tools` / `get_tool(name)` — discovery lazy
+- `plan_task` / `plan_functions` — orchestrator MI50
+- `generate_globals` / `generate_function` — generator M40
+- `compile` — arduino-cli con fix automatici
+- `analyze_errors` / `patch_code` — MI50 analisi + M40 patch
+- `upload_and_read` — PlatformIO + seriale
+- `grab_frames` — webcam CSI
+- `evaluate_text` / `evaluate_visual` — evaluator MI50
+- `search_kb` / `save_to_kb` — knowledge base
 
-# Dashboard standalone persistente (sopravvive alla chiusura di loop.py)
+**Pattern lazy tool loading:**
+Il system prompt dice solo che i tools esistono. Il modello chiama
+`list_tools` quando vuole la lista compatta, `get_tool(nome)` per i dettagli.
+Il codice non gira mai nel contesto — solo risultati sintetici.
+
+### 2. Loop classico (mantenuto per compatibilità)
+`agent/loop.py` — flusso sequenziale hardcoded (Analyst→Orchestrator→Generator→
+Compiler→Upload→Evaluator→Learner). Ancora funzionante, utile per debug.
+
+```bash
+python agent/loop.py "task" --fqbn esp32:esp32:esp32
+```
+
+---
+
+## DASHBOARD (porta 7700)
+
+```bash
+# Avvio stabile
 nohup python3 -c "
 import sys; sys.path.insert(0, '.')
 import agent.dashboard as d, time
 d.start()
 while True: time.sleep(60)
 " > /tmp/dashboard.log 2>&1 &
+```
 
-# Run agente (+ dashboard su http://localhost:7700)
-python agent/loop.py "task" --fqbn esp32:esp32:esp32
+**Funzionalità:**
+- 3 colonne: MI50 output, M40 output, Webcam frames
+- **Taskbar** in basso: textarea task + select FQBN + Start/Stop
+  - Start: pulisce tutto e avvia tool_agent.py nel venv corretto
+  - Stop: ferma il processo
+  - Stato agente polling ogni 2s, Start/Stop si abilitano di conseguenza
+- **📷 Scatta**: cattura frame dalla webcam del Raspberry per posizionamento
+- **🗑**: svuota cache frame (disco + UI + history SSE)
+- Thread non-daemon: la dashboard rimane viva dopo la fine del task
+- Frame persistenti su disco: `workspace/.frames_cache.json`
 
-# Solo compilazione (no hardware)
-python agent/loop.py "task" --fqbn esp32:esp32:esp32 --no-upload
+---
 
-# Kill processi stuck sul Raspberry
-ssh lele@YOUR_RPI_IP "pkill -f esptool; pkill -f 'pio run'"
+## COMPONENTI E FILE CHIAVE
 
-# Seriale Raspberry (debug)
-ssh lele@YOUR_RPI_IP "python3 -c \"
-import serial,time
-s=serial.Serial('/dev/ttyUSB0',115200,timeout=0.3)
-s.reset_input_buffer()
-time.sleep(2)
-buf=b''.join([s.read(128) for _ in range(30)])
-s.close()
-print(''.join(chr(b) if 32<=b<127 or b in(10,13) else '.' for b in buf)[:500])
-\""
+```
+agent/
+  tool_agent.py       ← NUOVO: loop ReAct con tool calling
+  loop.py             ← flusso classico (mantenuto)
+  orchestrator.py     ← plan_task, plan_functions, analyze_errors (MI50)
+  generator.py        ← generate_globals, generate_function, patch_code (M40)
+  compiler.py         ← compile_sketch, fix_known_includes, fix_known_api_errors
+  evaluator.py        ← evaluate, evaluate_visual
+  analyst.py          ← search KB simili
+  learner.py          ← salva snippet nel DB
+  notebook.py         ← taccuino operativo, assembla .ino
+  grab.py             ← grab_now: cattura frame webcam via SSH
+  remote_uploader.py  ← upload PlatformIO, seriale, check librerie
+  dashboard.py        ← Flask SSE porta 7700
+  mi50_client.py      ← client HTTP per MI50
+  mi50_server.py      ← server Flask per Qwen3.5-9B su ROCm
+  m40_client.py       ← client HTTP per M40 (llama-server)
 
-# Ultimo log
-tail -f logs/$(ls -t logs/ | head -1)
+docker/
+  Dockerfile.mi50     ← ROCm 6.2 + PyTorch + torchvision + causal-conv1d
+  run_mi50.sh         ← avvia container MI50
 
-# Notebook dell'ultimo task
-cat workspace/current/*/notebook.json | python3 -m json.tool | head -60
-
-# Knowledge base
-sqlite3 knowledge/arduino_agent.db "SELECT task_description, board, created_at FROM snippets ORDER BY created_at DESC LIMIT 5;"
-
-# Build Docker MI50 (se necessario)
-docker build -f docker/Dockerfile.mi50 -t mi50-server . 2>&1 | tee /tmp/mi50_docker_build.log
-docker stop mi50-server && docker rm mi50-server && bash docker/run_mi50.sh
+tools/
+  lista.json          ← indice compatto (nome + scopo 1 riga)
+  compiler.json       ← schema dettagliato tool compiler
+  grab.json           ← schema tool grab_now
+  evaluator.json      ← schema tool evaluator
+  orchestrator.json   ← schema tool orchestrator
+  generator.json      ← schema tool generator
+  remote_uploader.json
+  knowledge.json
+  notebook.json
+  analyst.json
+  learner.json
+  dashboard.json
 ```
 
 ---
 
-## DOCKER MI50 — dettagli tecnici
+## FIX APPLICATI (sessioni recenti)
 
-**Immagine:** `mi50-server:latest`
+### Thinking abilitato ovunque
+- Rimosso `/no_think` da tutti i prompt (analyst, orchestrator, generator, evaluator, learner)
+- MI50 ragiona prima di rispondere → meno allucinazioni sugli errori
 
-**ENV critici:**
-- `HSA_OVERRIDE_GFX_VERSION=9.0.6` — architettura reale MI50 (Vega20/gfx906)
-- `HIP_VISIBLE_DEVICES=0`
-- `HSA_ENABLE_SDMA=0`
-- `PYTORCH_HIP_ALLOC_CONF=max_split_size_mb:128,...,expandable_segments:True`
-- `HF_HOME=/mnt/raid0/hf_cache`
+### fix_known_api_errors() in compiler.py
+- `display.textWidth()` non esiste → corretto in `getTextBounds` con 7 argomenti
+- `display.miaFunzione()` → `miaFunzione()` (funzioni utente non sono metodi Adafruit)
+- `getTextBounds` con tipi sbagliati → corretti a `int16_t x1,y1; uint16_t tw,th`
 
-**Mount critico:** `-v agent/mi50_server.py:/app/mi50_server.py:ro`
-(il server gira da `/app/mi50_server.py`, NON da `/app/agent/mi50_server.py`)
+### vcap_frames forzato in loop.py
+- Se orchestrator restituisce 0 ma task ha parole chiave display/OLED/TFT → forza 3
 
-**Docker data-root:** `/mnt/raid0/docker-data`
-**Modello:** `/mnt/raid0/qwen3.5-9b/` (montato read-only)
+### evaluate_visual migliorato
+- `enable_thinking=False` nel processor visivo (5 min invece di 30)
+- Filtro `mm_token_type_ids` da `model.generate()` (kwargs non supportati)
+- Prompt: "guarda le immagini, non analizzare il codice"
+- Criteri lenient: non penalizza angolo webcam, riflessi, luminosità
+
+### torchvision nel Docker MI50
+- `pip install torchvision==0.20.1 --index-url .../rocm6.2`
+- Richiesto da Qwen3.5-VL per il processor visivo
+
+### Dashboard
+- Thread non-daemon (sopravvive alla fine del task)
+- Endpoint `/grab_test`, `/run_task`, `/stop_task`, `/agent_status`, `/clear_frames`
+- Start: pulisce tutto + avvia nel venv corretto (`.venv/bin/python3`)
+- Stop: disabilita Start, abilita Stop e viceversa
 
 ---
 
-## CALCOLO CONTESTI
+## COMANDI RAPIDI
 
-### MI50 — Qwen3.5-9B (HuggingFace, bfloat16, eager attention)
-- VRAM totale: 32 GB | Modello: ~18 GB | Libera: ~14 GB
-- **MAX_INPUT_TOKENS = 6144** (hardcoded in `mi50_server.py`)
+```bash
+# Avvio server (SEMPRE usare questo)
+cd /home/lele/codex-openai/programmatore_di_arduini && source .venv/bin/activate
+bash agent/start_servers.sh
 
-### M40 — Qwen3.5-9B Q5_K_M (llama.cpp GGUF)
-- VRAM totale: 11.5 GB | Modello: ~6.5 GB
-- **--ctx-size = 16384** (in `start_servers.sh`)
+# Stato server
+curl -s localhost:11434/health && curl -s localhost:11435/health
+
+# Tool Agent (nuovo)
+python agent/tool_agent.py "task" --fqbn esp32:esp32:esp32
+
+# Loop classico
+python agent/loop.py "task" --fqbn esp32:esp32:esp32
+
+# Solo compilazione
+python agent/loop.py "task" --fqbn esp32:esp32:esp32 --no-upload
+
+# Kill processi stuck sul Raspberry
+ssh lele@192.168.1.167 "pkill -f esptool; pkill -f 'pio run'"
+
+# Ultimo log
+tail -f /tmp/tool_agent.log
+
+# Restart MI50
+docker stop mi50-server && docker rm mi50-server && bash docker/run_mi50.sh
+
+# Knowledge base
+sqlite3 knowledge/arduino_agent.db "SELECT task_description, board, created_at FROM snippets ORDER BY created_at DESC LIMIT 5;"
+```
+
+---
+
+## TODO PRIORITARI
+
+1. **Test completo tool_agent** — astronave OLED in corso, verificare che il modello
+   usi grab_frames autonomamente senza hint espliciti nel task
+2. **Context management nel tool_agent** — con 6144 token max su MI50, dopo ~15 step
+   la conversazione potrebbe saturarsi. Aggiungere summarizzazione se messages > 10
+3. **tools/grab.json aggiornato** — verificare che lo schema rispecchi l'API attuale
+   di grab_now (ritorna dict con frame_paths, non lista diretta)
+4. **Webcam posizionamento** — il foro di fissaggio del display OLED era visibile
+   nella webcam; riorientare fisicamente la cam prima del prossimo test visivo

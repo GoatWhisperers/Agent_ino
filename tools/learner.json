@@ -1,0 +1,34 @@
+{
+  "tool": "learner",
+  "modulo": "agent.learner.Learner",
+  "gpu": "MI50 (porta 11434)",
+  "quando": "Fase 6 — SOLO se eval_success=True",
+
+  "uso": "from agent.learner import Learner\nl = Learner()\npatterns = l.extract_patterns(task, code, iterations)",
+
+  "funzioni": {
+    "extract_patterns": {
+      "firma": "extract_patterns(task: str, code: str, iterations: list) -> dict",
+      "scopo": "Estrae pattern riusabili da una run di successo",
+      "input": {
+        "task": "str — descrizione originale",
+        "code": "str — codice finale funzionante",
+        "iterations": "list[dict] — log degli errori/fix durante la run"
+      },
+      "output": {
+        "snippet": "dict — {description, key_patterns, reuse_notes, tags: list[str]}",
+        "libraries": "list[dict] — [{name, reason}]",
+        "error_fixes": "list[dict] — [{pattern, fix}]",
+        "thinking": "str"
+      }
+    }
+  },
+
+  "dopo_extract": [
+    "sid = kdb.add_snippet(task, code, board, libraries, tags)",
+    "from knowledge.semantic import index_snippet",
+    "index_snippet(sid, task, code, tags)",
+    "for lib in patterns['libraries']: kdb.add_library(lib['name'], lib['reason'], 'learned')",
+    "for ef in patterns['error_fixes']: kdb.add_error_fix(ef['pattern'], ef['fix'])"
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "_doc": "Lista tools disponibili. Leggi tools/<nome>.json per la guida d'uso completa. Libera il contesto dopo l'uso.",
+  "tools": [
+    {
+      "nome": "orchestrator",
+      "modulo": "agent.orchestrator.Orchestrator",
+      "scopo": "MI50 reasoning: plan_task, plan_functions, analyze_errors",
+      "quando": "Pianificazione task, analisi errori compilatore"
+    },
+    {
+      "nome": "generator",
+      "modulo": "agent.generator.Generator",
+      "scopo": "M40 code gen: generate_globals, generate_function, generate_code, patch_code",
+      "quando": "Generazione codice Arduino/ESP32"
+    },
+    {
+      "nome": "compiler",
+      "modulo": "agent.compiler",
+      "scopo": "compile_sketch, check_libraries, fix_known_includes",
+      "quando": "Compilazione arduino-cli, verifica librerie PRIMA di generare codice"
+    },
+    {
+      "nome": "remote_uploader",
+      "modulo": "agent.remote_uploader",
+      "scopo": "setup_pio_project, compile_pio, upload_pio, read_serial_remote, check_pio_libraries, is_reachable",
+      "quando": "Upload ESP32 via Raspberry Pi, check librerie PlatformIO"
+    },
+    {
+      "nome": "grab",
+      "modulo": "agent.grab",
+      "scopo": "grab_now, deploy, start_serial_grab, collect_grab",
+      "quando": "Cattura frame webcam CSI dal Raspberry per valutazione visiva"
+    },
+    {
+      "nome": "evaluator",
+      "modulo": "agent.evaluator.Evaluator",
+      "scopo": "evaluate (testuale), evaluate_visual (con frame webcam)",
+      "quando": "Valutazione risultato DOPO upload: decide se il task è completato"
+    },
+    {
+      "nome": "learner",
+      "modulo": "agent.learner.Learner",
+      "scopo": "extract_patterns: salva snippet nel DB per riuso futuro",
+      "quando": "Solo se task completato con successo (Fase 6)"
+    },
+    {
+      "nome": "analyst",
+      "modulo": "agent.analyst.Analyst",
+      "scopo": "analyze_similar_code, analyze_project_state, analyze_for_modify",
+      "quando": "Prima della pianificazione per riusare codice dal DB"
+    },
+    {
+      "nome": "notebook",
+      "modulo": "agent.notebook.Notebook",
+      "scopo": "Taccuino operativo: traccia piano, funzioni, stati, assembla .ino finale",
+      "quando": "Tutto il ciclo generate+compile, passato tra le fasi"
+    },
+    {
+      "nome": "knowledge",
+      "modulo": "knowledge.db + knowledge.query_engine",
+      "scopo": "add_snippet, search_snippets_text, get_error_fixes, get_context_for_task",
+      "quando": "Ricerca snippet simili (Fase 0), salvataggio (Fase 6)"
+    },
+    {
+      "nome": "dashboard",
+      "modulo": "agent.dashboard",
+      "scopo": "start, phase, token, frame, compile_result, serial_output, run_end",
+      "quando": "Notifiche real-time UI su http://localhost:7700 durante tutta la run"
+    }
+  ]
+}

@@ -216,7 +216,8 @@ def generate_with_images():
 
     with _generate_lock:
         text = proc.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+            messages, tokenize=False, add_generation_prompt=True,
+            enable_thinking=False,
         )
         inputs = proc(
             text=text,
@@ -229,9 +230,14 @@ def generate_with_images():
         input_len = inputs["input_ids"].shape[1]
         print(f"[MI50Server] /generate_with_images input_tokens={input_len}", flush=True)
 
+        # Rimuovi kwargs che il modello non accetta (es. mm_token_type_ids da Qwen3VL processor)
+        import inspect
+        gen_params = set(inspect.signature(_model.generate).parameters.keys())
+        gen_inputs = {k: v for k, v in inputs.items() if k in gen_params or k == "input_ids"}
+
         with torch.no_grad():
             output_ids = _model.generate(
-                **inputs,
+                **gen_inputs,
                 max_new_tokens=max_new_tokens,
                 do_sample=False,
                 temperature=None,

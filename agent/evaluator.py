@@ -9,7 +9,7 @@ sys.path.insert(0, "/home/lele/codex-openai/programmatore_di_arduini")
 
 from agent.mi50_client import MI50Client  # noqa: E402
 
-_EVAL_SYSTEM = """/no_think
+_EVAL_SYSTEM = """
 Sei un giudice tecnico per progetti Arduino.
 Il tuo output deve essere ESCLUSIVAMENTE un oggetto JSON valido. Nessun testo prima o dopo.
 
@@ -117,26 +117,28 @@ class Evaluator:
         for _ in frame_paths:
             content.append({"type": "image"})
 
-        serial_snippet = serial_output[:500] if serial_output else "(nessun output seriale)"
+        serial_snippet = serial_output[:300] if serial_output else ""
 
         prompt_parts = [
-            "Sei un esperto di sistemi embedded.",
-            f"Analizza questi {len(frame_paths)} frame catturati dall'ESP32 durante "
-            "l'esecuzione del programma.",
-            f"Task originale: {task}",
-            f"Output seriale: {serial_snippet}",
+            f"Task richiesto: {task}",
+            "",
+            "GUARDA LE IMMAGINI. Il codice ha già compilato correttamente — NON analizzare la sintassi.",
+            "Valuta SOLO in base a quello che vedi nelle immagini: il display mostra quello che il task richiede?",
         ]
-        if code:
-            prompt_parts.append(f"Codice caricato (estratto):\n{code[:600]}")
+        if serial_snippet:
+            prompt_parts.append(f"Output seriale (informativo): {serial_snippet}")
 
         prompt_parts.append(
-            "Il programma ha funzionato correttamente? "
-            'Rispondi SOLO con JSON: {"success": bool, "reason": str, "suggestions": str}'
+            "\nRispondi ESCLUSIVAMENTE con JSON, nessun testo prima o dopo:\n"
+            '{"success": true/false, "reason": "descrizione di cosa vedi nel display", "suggestions": ""}\n'
+            "CRITERI: success=true se il display mostra quello richiesto, anche parzialmente visibile o con angolo obliquo della webcam.\n"
+            "Non penalizzare per qualità immagine, angolo, luminosità o riflessi — valuta solo il CONTENUTO del display."
         )
 
         content.append({"type": "text", "text": "\n".join(prompt_parts)})
 
         messages = [
+            {"role": "system", "content": "Sei un giudice tecnico per progetti Arduino. Rispondi SOLO con JSON. Nessun testo aggiuntivo."},
             {
                 "role": "user",
                 "content": content,

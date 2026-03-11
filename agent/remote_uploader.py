@@ -22,9 +22,9 @@ from pathlib import Path
 from typing import Optional
 
 # ── Configurazione Raspberry Pi ──────────────────────────────────────────────
-RPI_HOST        = "YOUR_RPI_IP"
+RPI_HOST        = "192.168.1.167"
 RPI_USER        = "lele"
-RPI_PASSWORD    = "YOUR_PASSWORD"
+RPI_PASSWORD    = "pippopippo33$$"
 RPI_SERIAL_PORT = "/dev/ttyUSB0"
 RPI_PIO         = "~/.platformio/penv/bin/pio"
 RPI_PROJECTS    = "~/projects"
@@ -412,3 +412,52 @@ def is_reachable() -> bool:
     """Verifica che il Raspberry Pi sia raggiungibile via SSH."""
     r = _ssh("echo ok", timeout=10)
     return r["returncode"] == 0 and "ok" in r["stdout"]
+
+
+def check_pio_libraries(library_names: list) -> dict:
+    """
+    Verifica che le librerie esistano in ~/.platformio/lib/ sul Raspberry Pi.
+
+    library_names: nomi Arduino (es. ["Adafruit SSD1306", "Wire"])
+    Ritorna: {"all_ok": bool, "missing": list[str], "installed": list[str]}
+    """
+    if not library_names:
+        return {"all_ok": True, "missing": [], "installed": []}
+
+    missing = []
+    installed = []
+
+    for name in library_names:
+        # Builtin (valore "" in ARDUINO_TO_PIO) → sempre OK
+        pio_id = ARDUINO_TO_PIO.get(name, name)
+        if pio_id == "":
+            installed.append(name)
+            continue
+
+        # Ricava il nome cartella (parte dopo "/" nel registry id, o il nome stesso)
+        if "/" in pio_id:
+            lib_folder = pio_id.split("/", 1)[1]
+        else:
+            lib_folder = pio_id
+
+        # Cerca con wildcard: ~/.platformio/lib/<LibName>*
+        safe = lib_folder.replace("'", "").replace('"', "")
+        r = _ssh(
+            f"ls ~/.platformio/lib/ 2>/dev/null | grep -i '{safe[:20]}' | head -1",
+            timeout=15,
+        )
+        if r["returncode"] == 0 and r["stdout"].strip():
+            installed.append(name)
+        else:
+            # Seconda chance: cerca con nome Arduino normalizzato
+            norm = name.replace("_", " ").replace("-", " ").split()[0]
+            r2 = _ssh(
+                f"ls ~/.platformio/lib/ 2>/dev/null | grep -i '{norm}' | head -1",
+                timeout=15,
+            )
+            if r2["returncode"] == 0 and r2["stdout"].strip():
+                installed.append(name)
+            else:
+                missing.append(name)
+
+    return {"all_ok": len(missing) == 0, "missing": missing, "installed": installed}

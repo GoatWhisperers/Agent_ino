@@ -1,0 +1,55 @@
+{
+  "tool": "knowledge",
+  "moduli": {
+    "db": "knowledge.db",
+    "query": "knowledge.query_engine"
+  },
+  "storage": {
+    "sqlite": "knowledge/arduino_agent.db",
+    "chromadb": "knowledge/chroma/ (ricerca semantica vettoriale)"
+  },
+
+  "funzioni_query": {
+    "get_context_for_task": {
+      "firma": "get_context_for_task(task: str) -> str",
+      "scopo": "Ritorna stringa testo con snippet e librerie rilevanti per il task",
+      "quando": "Fase 0 (Analyst) per arricchire il contesto"
+    },
+    "find_relevant_context": {
+      "firma": "find_relevant_context(task: str, mode: str = 'NEW') -> dict",
+      "output": {
+        "snippets": "list[dict] — snippet simili dal DB",
+        "libraries": "list[dict] — librerie rilevanti",
+        "error_fixes": "list[dict] — fix errori noti"
+      }
+    },
+    "search_snippets_text": {
+      "firma": "search_snippets_text(keyword: str, limit: int = 10) -> list[dict]"
+    },
+    "get_error_fixes": {
+      "firma": "get_error_fixes(pattern: str = None, limit: int = 20) -> list[dict]"
+    },
+    "get_recent_runs": {
+      "firma": "get_recent_runs(n: int = 10) -> list[dict]"
+    }
+  },
+
+  "funzioni_write": {
+    "add_snippet": {
+      "firma": "add_snippet(task, code, board, libraries, tags) -> str (sid)",
+      "quando": "Fase 6 (Learner) solo se task completato con successo"
+    },
+    "add_run": {
+      "firma": "add_run(task, mode, success, iterations, final_code, serial_output='') -> str",
+      "quando": "Sempre a fine run (successo o fallimento)"
+    },
+    "add_library": {
+      "firma": "add_library(name, description, source) -> None"
+    },
+    "add_error_fix": {
+      "firma": "add_error_fix(pattern, fix_description, fix_code_patch='') -> None"
+    }
+  },
+
+  "init": "from knowledge import db as kdb\nkdb.init_db()  # chiamare una volta all'avvio"
+}

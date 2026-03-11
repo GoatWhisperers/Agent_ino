@@ -9,7 +9,7 @@ sys.path.insert(0, "/home/lele/codex-openai/programmatore_di_arduini")
 
 from agent.mi50_client import MI50Client  # noqa: E402
 
-_LEARN_SYSTEM = """/no_think
+_LEARN_SYSTEM = """
 Sei un esperto Arduino che analizza run riuscite per estrarre conoscenza riutilizzabile.
 Il tuo output deve essere ESCLUSIVAMENTE un oggetto JSON valido. Nessun testo prima o dopo.
 

@@ -18,16 +18,20 @@ import base64
 import json
 import os
 import queue
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 
-from flask import Flask, Response, request, stream_with_context
+from flask import Flask, Response, jsonify, request, stream_with_context
 
 # ── Stato globale ──────────────────────────────────────────────────────────────
 
 _app = Flask(__name__)
 _clients: list[queue.Queue] = []
+_agent_proc: subprocess.Popen | None = None
+_agent_lock = threading.Lock()
 _clients_lock = threading.Lock()
 _history: list[dict] = []          # eventi recenti (max 500) per nuovi client
 _history_lock = threading.Lock()
@@ -181,6 +185,7 @@ _HTML = r"""<!DOCTYPE html>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  #main-area { flex: 1; overflow: hidden; display: flex; }
 
   /* Header */
   #header { padding: 12px 20px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
@@ -195,7 +200,7 @@ _HTML = r"""<!DOCTYPE html>
   #time-badge { font-size: 11px; color: #6e7681; font-variant-numeric: tabular-nums; }
 
   /* 3-column layout */
-  #cols { display: flex; flex: 1; overflow: hidden; gap: 1px; background: #30363d; }
+  #cols { display: flex; flex: 1; overflow: hidden; gap: 1px; background: #30363d; width: 100%; }
   .col { display: flex; flex-direction: column; background: #0d1117; overflow: hidden; }
   #col-mi50 { flex: 1; }
   #col-m40  { flex: 1; }
@@ -250,12 +255,36 @@ _HTML = r"""<!DOCTYPE html>
   #lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 8px; }
 
   /* Connection lost */
-  #conn-banner { display: none; position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: #f85149; color: white; padding: 8px 20px; border-radius: 6px; font-size: 12px; font-weight: 600; z-index: 200; }
+  #conn-banner { display: none; position: fixed; bottom: 56px; left: 50%; transform: translateX(-50%); background: #f85149; color: white; padding: 8px 20px; border-radius: 6px; font-size: 12px; font-weight: 600; z-index: 200; }
   #conn-banner.show { display: block; }
 
   /* Scrollbar for cam col */
   #col-cam { display: flex; flex-direction: column; }
   #col-cam .col-body { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Task bar */
+  #taskbar { padding: 8px 16px; background: #161b22; border-top: 1px solid #30363d; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  #taskbar textarea { flex: 1; background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px; padding: 6px 10px; font-size: 12px; font-family: inherit; resize: none; height: 38px; line-height: 1.4; outline: none; transition: border-color 0.2s; }
+  #taskbar textarea:focus { border-color: #58a6ff; }
+  #fqbn-select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px; padding: 5px 8px; font-size: 11px; outline: none; cursor: pointer; }
+  #btn-start { background: #238636; color: white; border: none; border-radius: 6px; padding: 7px 18px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.2s; white-space: nowrap; }
+  #btn-start:hover { background: #2ea043; }
+  #btn-start:disabled { background: #444; cursor: not-allowed; }
+  #btn-stop { background: #b91c1c; color: white; border: none; border-radius: 6px; padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.2s; white-space: nowrap; }
+  #btn-stop:hover { background: #dc2626; }
+  #btn-stop:disabled { background: #444; cursor: not-allowed; }
+  #agent-status { font-size: 10px; color: #6e7681; white-space: nowrap; }
+  #agent-status.running { color: #3fb950; }
+
+  /* Webcam test frame */
+  #test-frame-box { padding: 8px; border-bottom: 1px solid #30363d; flex-shrink: 0; display: none; }
+  #test-frame-box img { width: 100%; border-radius: 4px; display: block; cursor: pointer; }
+  #test-frame-label { font-size: 10px; color: #ffa657; margin-top: 3px; text-align: center; }
+  #btn-grab { background: #1f2d3a; color: #ffa657; border: 1px solid #ffa657; border-radius: 5px; padding: 3px 10px; font-size: 10px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+  #btn-grab:hover { background: #2d4156; }
+  #btn-grab:disabled { opacity: 0.5; cursor: not-allowed; }
+  #btn-clear-frames { background: #1f2020; color: #6e7681; border: 1px solid #444; border-radius: 5px; padding: 3px 8px; font-size: 10px; cursor: pointer; transition: background 0.2s; }
+  #btn-clear-frames:hover { color: #f85149; border-color: #f85149; }
 </style>
 </head>
 <body>
@@ -268,7 +297,7 @@ _HTML = r"""<!DOCTYPE html>
   <div id="time-badge">--:--:--</div>
 </div>
 
-<div id="cols">
+<div id="main-area"><div id="cols">
   <div class="col" id="col-mi50">
     <div class="col-header">
       <span class="col-label">MI50 — Qwen3.5-9B</span>
@@ -288,7 +317,13 @@ _HTML = r"""<!DOCTYPE html>
   <div class="col" id="col-cam">
     <div class="col-header">
       <span class="col-label">Webcam</span>
+      <button id="btn-grab" onclick="grabTestFrame()">📷 Scatta</button>
+      <button id="btn-clear-frames" onclick="clearFrames()">🗑</button>
       <span class="col-sub" id="cam-count">0 frame</span>
+    </div>
+    <div id="test-frame-box">
+      <img id="test-frame-img" src="" alt="test frame" onclick="lightboxImg.src=this.src;lightbox.classList.add('open')">
+      <div id="test-frame-label">test</div>
     </div>
     <div class="col-body">
       <div id="frames-grid">
@@ -296,6 +331,18 @@ _HTML = r"""<!DOCTYPE html>
       </div>
     </div>
   </div>
+</div></div>
+
+<div id="taskbar">
+  <textarea id="task-input" placeholder="Descrivi il task Arduino... (es: mostra un cerchio sul display OLED)" rows="1"></textarea>
+  <select id="fqbn-select">
+    <option value="esp32:esp32:esp32">ESP32</option>
+    <option value="arduino:avr:uno">Arduino Uno</option>
+    <option value="arduino:avr:mega">Arduino Mega</option>
+  </select>
+  <button id="btn-start" onclick="startTask()">▶ Start</button>
+  <button id="btn-stop" onclick="stopTask()" disabled>■ Stop</button>
+  <span id="agent-status">inattivo</span>
 </div>
 
 <div id="lightbox">
@@ -549,6 +596,141 @@ function handleEvent(ev) {
   }
 }
 
+// ── Webcam test frame ──────────────────────────────────────────────────────────
+const btnGrab = document.getElementById('btn-grab');
+const testFrameBox = document.getElementById('test-frame-box');
+const testFrameImg = document.getElementById('test-frame-img');
+const testFrameLabel = document.getElementById('test-frame-label');
+
+async function clearFrames() {
+  await fetch('/clear_frames', {method:'POST'});
+  testFrameBox.style.display = 'none';
+  testFrameImg.src = '';
+  framesGrid.innerHTML = '<div id="no-frames">Nessun frame ancora.<br>La webcam si attiva quando<br>il piano prevede vcap.</div>';
+  frameCount = 0;
+  camCount.textContent = '0 frame';
+}
+
+async function grabTestFrame() {
+  btnGrab.disabled = true;
+  btnGrab.textContent = '⏳';
+  try {
+    const r = await fetch('/grab_test', {method:'POST'});
+    const data = await r.json();
+    if (data.error) {
+      testFrameLabel.textContent = '❌ ' + data.error;
+      testFrameBox.style.display = 'block';
+    } else {
+      testFrameImg.src = 'data:image/jpeg;base64,' + data.b64;
+      testFrameLabel.textContent = '📷 ' + new Date().toLocaleTimeString();
+      testFrameBox.style.display = 'block';
+    }
+  } catch(e) {
+    testFrameLabel.textContent = '❌ Errore: ' + e.message;
+    testFrameBox.style.display = 'block';
+  } finally {
+    btnGrab.disabled = false;
+    btnGrab.textContent = '📷 Scatta';
+  }
+}
+
+// ── Task control ───────────────────────────────────────────────────────────────
+const taskInput = document.getElementById('task-input');
+const fqbnSelect = document.getElementById('fqbn-select');
+const btnStart = document.getElementById('btn-start');
+const btnStop = document.getElementById('btn-stop');
+const agentStatus = document.getElementById('agent-status');
+
+function setAgentRunning(running, pid) {
+  if (running) {
+    btnStart.disabled = true;
+    btnStop.disabled = false;
+    agentStatus.className = 'running';
+    agentStatus.textContent = pid ? 'running (pid ' + pid + ')' : 'running...';
+  } else {
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+    agentStatus.className = '';
+    agentStatus.textContent = 'inattivo';
+  }
+}
+
+function clearAll() {
+  mi50Body.innerHTML = '';
+  m40Body.innerHTML = '';
+  framesGrid.innerHTML = '<div id="no-frames">Nessun frame ancora.</div>';
+  testFrameBox.style.display = 'none';
+  testFrameImg.src = '';
+  frameCount = 0; mi50TokenCount = 0; m40TokenCount = 0;
+  mi50Tok.textContent = '0 tok'; m40Tok.textContent = '0 tok';
+  camCount.textContent = '0 frame';
+  mi50Current = m40Current = m40FuncDiv = null;
+  fetch('/clear_frames', {method:'POST'});
+}
+
+async function startTask() {
+  const task = taskInput.value.trim();
+  if (!task) { taskInput.focus(); return; }
+  clearAll();
+  setAgentRunning(true);
+  try {
+    const r = await fetch('/run_task', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({task, fqbn: fqbnSelect.value})
+    });
+    const data = await r.json();
+    if (data.error) {
+      setAgentRunning(false);
+      agentStatus.textContent = '❌ ' + data.error;
+    } else {
+      setAgentRunning(true, data.pid);
+      pollAgentStatus();
+    }
+  } catch(e) {
+    setAgentRunning(false);
+    agentStatus.textContent = '❌ ' + e.message;
+  }
+}
+
+async function stopTask() {
+  try { await fetch('/stop_task', {method:'POST'}); } catch(e) {}
+  setAgentRunning(false);
+}
+
+function pollAgentStatus() {
+  const interval = setInterval(async () => {
+    try {
+      const r = await fetch('/agent_status');
+      const data = await r.json();
+      if (!data.running) {
+        clearInterval(interval);
+        setAgentRunning(false);
+      }
+    } catch(e) { clearInterval(interval); }
+  }, 2000);
+}
+
+// Controlla stato agente al caricamento pagina
+(async () => {
+  try {
+    const r = await fetch('/agent_status');
+    const data = await r.json();
+    setAgentRunning(data.running, data.pid);
+    if (data.running) pollAgentStatus();
+  } catch(e) {}
+})();
+
+// Auto-expand textarea
+taskInput.addEventListener('input', function() {
+  this.style.height = '38px';
+  this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+});
+// Start on Ctrl+Enter
+taskInput.addEventListener('keydown', function(e) {
+  if (e.ctrlKey && e.key === 'Enter') startTask();
+});
+
 // Lightbox close
 lightbox.onclick = () => lightbox.classList.remove('open');
 
@@ -575,6 +757,76 @@ connect();
 @_app.get("/")
 def index():
     return _HTML, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@_app.post("/grab_test")
+def grab_test():
+    """Cattura un frame dalla webcam del Raspberry per test posizionamento."""
+    try:
+        from agent.grab import grab_now
+        result = grab_now(n_frames=1)
+        if not result.get("ok") or not result.get("frame_paths"):
+            err = result.get("error") or "Nessun frame catturato"
+            return jsonify({"error": err}), 500
+        path = result["frame_paths"][0]
+        with open(path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+        return jsonify({"b64": b64, "path": path})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@_app.post("/clear_frames")
+def clear_frames_route():
+    """Svuota cache frame su disco e rimuove i frame dalla history."""
+    with _frames_lock:
+        _frames_cache.clear()
+        _save_frames_cache([])
+    with _history_lock:
+        _history[:] = [e for e in _history if e.get("type") != "frame"]
+    return jsonify({"ok": True})
+
+
+@_app.post("/run_task")
+def run_task():
+    """Avvia agent/loop.py con il task dato."""
+    global _agent_proc
+    data = request.get_json() or {}
+    task = (data.get("task") or "").strip()
+    fqbn = data.get("fqbn") or "esp32:esp32:esp32"
+    if not task:
+        return jsonify({"error": "task vuoto"}), 400
+    with _agent_lock:
+        if _agent_proc and _agent_proc.poll() is None:
+            return jsonify({"error": "Agente già in esecuzione (pid {})".format(_agent_proc.pid)}), 409
+        project_root = Path(__file__).parent.parent
+        # Usa il Python del venv corretto, non sys.executable (che potrebbe essere un altro progetto)
+        venv_python = project_root / ".venv" / "bin" / "python3"
+        python = str(venv_python) if venv_python.exists() else sys.executable
+        cmd = [python, "agent/tool_agent.py", task, "--fqbn", fqbn, "--no-dashboard"]
+        _agent_proc = subprocess.Popen(cmd, cwd=str(project_root))
+    return jsonify({"ok": True, "pid": _agent_proc.pid})
+
+
+@_app.post("/stop_task")
+def stop_task():
+    """Ferma il processo loop.py in esecuzione."""
+    global _agent_proc
+    with _agent_lock:
+        if _agent_proc and _agent_proc.poll() is None:
+            _agent_proc.terminate()
+            return jsonify({"ok": True, "note": "SIGTERM inviato"})
+    return jsonify({"ok": True, "note": "nessun processo attivo"})
+
+
+@_app.get("/agent_status")
+def agent_status_route():
+    """Stato corrente dell'agente."""
+    with _agent_lock:
+        if _agent_proc is None:
+            return jsonify({"running": False})
+        running = _agent_proc.poll() is None
+        return jsonify({"running": running, "pid": _agent_proc.pid})
 
 
 @_app.get("/events")
@@ -636,7 +888,7 @@ def start(port: int = PORT):
     def _run():
         _app.run(host="0.0.0.0", port=port, threaded=True, use_reloader=False)
 
-    _server_thread = threading.Thread(target=_run, daemon=True)
+    _server_thread = threading.Thread(target=_run, daemon=False)
     _server_thread.start()
     time.sleep(0.5)
     print(f"\n  📊 Dashboard: http://localhost:{port}\n", flush=True)

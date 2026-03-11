@@ -41,6 +41,9 @@ RUN pip install \
     pillow \
     huggingface_hub
 
+# ── torchvision (richiesto da Qwen3.5-VL per il video processor) ───────────────
+RUN pip install torchvision==0.20.1 --index-url https://download.pytorch.org/whl/rocm6.2
+
 # ── causal-conv1d ──────────────────────────────────────────────────────────────
 # Usata da Qwen3.5 per i layer SSM/convoluzionali — kernel HIP nativi, no Triton.
 # Compila per gfx906 ma durante la build Docker non c'è GPU disponibile:

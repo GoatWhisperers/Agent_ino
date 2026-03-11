@@ -185,11 +185,25 @@ def _phase_plan(task: str, context: str, mode: str, fqbn: str, log_fh) -> tuple[
     from agent.orchestrator import Orchestrator
     orch = Orchestrator()
     plan = orch.plan_task(task, context=context, mode=mode)
+
+    # Fallback: forza vcap_frames se il task usa display ma il modello ha messo 0
+    _DISPLAY_LIBS = {"adafruit_ssd1306", "adafruit ssd1306", "tft_espi", "adafruit_st7735",
+                     "adafruit_ili9341", "u8g2", "u8glib", "adafruit_gfx", "adafruit gfx library"}
+    _DISPLAY_KEYWORDS = ("oled", "display", "schermo", "ssd1306", "tft", "lcd", "screen")
+    if plan.get("vcap_frames", 0) == 0:
+        libs_lower = {l.lower() for l in plan.get("libraries_needed", [])}
+        task_lower = task.lower()
+        if libs_lower & _DISPLAY_LIBS or any(k in task_lower for k in _DISPLAY_KEYWORDS):
+            plan["vcap_frames"] = 3
+            plan["vcap_interval_ms"] = plan.get("vcap_interval_ms", 1000)
+            _print("  ⚠️  vcap_frames forzato a 3 (task con display, modello aveva restituito 0)")
+
     _write_event(log_fh, "orchestrator_plan",
                  approach=plan["approach"],
                  libraries=plan["libraries_needed"],
                  key_points=plan["key_points"],
                  note_tecniche=plan.get("note_tecniche", []),
+                 vcap_frames=plan.get("vcap_frames", 0),
                  thinking=plan["thinking"])
     _print(f"  Approccio: {plan['approach'][:100]}...")
     if plan["libraries_needed"]:
@@ -339,14 +353,19 @@ def _phase_compile_loop(
 
     iterations = []
     current_code = code
+    prev_errors: list = []
 
     for attempt in range(1, MAX_COMPILE_ATTEMPTS + 1):
         _print(f"\n[FASE 3 — COMPILER: tentativo {attempt}/{MAX_COMPILE_ATTEMPTS}]")
         dashboard.phase("compile", f"tentativo {attempt}/{MAX_COMPILE_ATTEMPTS}")
-        from agent.compiler import fix_known_includes
+        from agent.compiler import fix_known_includes, fix_known_api_errors
         current_code = fix_known_includes(current_code)
+        if attempt > 1:
+            # Applica fix API hardcoded basati sugli errori del tentativo precedente
+            current_code = fix_known_api_errors(current_code, prev_errors)
         _write_sketch(sketch_dir, current_code)
         result = compile_sketch(str(sketch_dir), fqbn=fqbn)
+        prev_errors = result.get("errors", [])
 
         _write_event(log_fh, "compile_attempt",
                      attempt=attempt,
@@ -796,12 +815,17 @@ def run(
         # ── Fase 1: Planning + taccuino ────────────────────
         plan, nb = _phase_plan(task, context, mode, fqbn, log_fh)
 
-        # ── Check librerie arduino-cli ─────────────────────────────────────────
+        # ── Check librerie PRIMA di generare codice ────────────────────────────
+        board_family = "esp32" if "esp32" in fqbn.lower() else "avr"
         if plan["libraries_needed"]:
             from agent.compiler import check_libraries
             lib_check = check_libraries(plan["libraries_needed"])
+            _write_event(log_fh, "library_check_local",
+                         all_ok=lib_check["all_ok"],
+                         missing=lib_check["missing"],
+                         installed=lib_check["installed"])
             if not lib_check["all_ok"]:
-                _print("\n⚠️  LIBRERIE MANCANTI — installa prima di continuare:")
+                _print("\n⚠️  LIBRERIE MANCANTI (arduino-cli) — installa prima di continuare:")
                 for lib in lib_check["missing"]:
                     _print(f"   arduino-cli lib install \"{lib}\"")
                 _write_event(log_fh, "run_end", success=False, reason="missing_libraries",
@@ -809,6 +833,27 @@ def run(
                 dashboard.run_end(False, "missing_libraries")
                 return {"success": False, "reason": "missing_libraries",
                         "missing": lib_check["missing"], "log": str(log_path)}
+            _print(f"  Librerie locali OK: {lib_check['installed']}")
+
+        # ── Check librerie PlatformIO sul Raspberry (solo ESP32) ───────────────
+        if board_family == "esp32" and plan["libraries_needed"]:
+            from agent.remote_uploader import check_pio_libraries, is_reachable as _rpi_ok
+            if _rpi_ok():
+                pio_check = check_pio_libraries(plan["libraries_needed"])
+                _write_event(log_fh, "library_check_pio",
+                             all_ok=pio_check["all_ok"],
+                             missing=pio_check["missing"],
+                             installed=pio_check["installed"])
+                if not pio_check["all_ok"]:
+                    _print("\n⚠️  LIBRERIE MANCANTI su Raspberry (PlatformIO):")
+                    for lib in pio_check["missing"]:
+                        _print(f"   ssh lele@192.168.1.167 'cd ~/.platformio && pio pkg install -l \"{lib}\"'")
+                    _write_event(log_fh, "run_end", success=False, reason="missing_pio_libraries",
+                                 missing=pio_check["missing"])
+                    dashboard.run_end(False, "missing_pio_libraries")
+                    return {"success": False, "reason": "missing_pio_libraries",
+                            "missing": pio_check["missing"], "log": str(log_path)}
+                _print(f"  Librerie PlatformIO OK: {pio_check['installed']}")
 
         # ── Fase 2: Generazione codice ─────────────────────
         code = _phase_generate(task, nb, plan, log_fh)
@@ -840,7 +885,6 @@ def run(
             return {"success": True, "reason": "compiled_ok", "log": str(log_path)}
 
         # ── Rilevamento uploader: remoto (ESP32/Raspberry) o locale (AVR) ───────
-        board_family = "esp32" if "esp32" in fqbn.lower() else "avr"
         use_remote = board_family == "esp32"
 
         if use_remote:

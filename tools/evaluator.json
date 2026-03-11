@@ -1,0 +1,43 @@
+{
+  "tool": "evaluator",
+  "modulo": "agent.evaluator.Evaluator",
+  "scopo": "MI50 decide se il task è completato. È l'ULTIMA fase prima di salvare nel DB.",
+
+  "uso": "from agent.evaluator import Evaluator\nev = Evaluator()\nresult = ev.evaluate(task, serial_output, code)",
+
+  "funzioni": {
+    "evaluate": {
+      "firma": "evaluate(task: str, serial_output: str, code: str = '') -> dict",
+      "scopo": "Valutazione testuale: confronta output seriale con obiettivo del task",
+      "quando": "Se NON ci sono frame webcam",
+      "output": {
+        "success": "bool — True se task completato",
+        "reason": "str — spiegazione della decisione",
+        "suggestions": "str — suggerimenti per fix se fallito",
+        "thinking": "str — ragionamento interno MI50"
+      },
+      "ATTENZIONE": "Non chiamare se serial_output è vuoto E non ci sono frame — skip evaluation"
+    },
+
+    "evaluate_visual": {
+      "firma": "evaluate_visual(task: str, frame_paths: list[str], serial_output: str, code: str = '') -> dict",
+      "scopo": "Valutazione visiva: MI50 analizza le immagini webcam + serial per decidere",
+      "quando": "Se ci sono frame webcam (grab_now ha restituito frame_paths non vuoto)",
+      "output": "identico a evaluate()",
+      "note": "frame_paths = path locali /tmp/grab_local_*/frame_*.jpg"
+    }
+  },
+
+  "logica_decisione": [
+    "1. serial_output.strip() vuoto E frame_paths vuoto → SKIP evaluation (non chiamare)",
+    "2. frame_paths non vuoto → evaluate_visual(task, frame_paths, serial_output, code)",
+    "3. serial_output non vuoto, frame_paths vuoto → evaluate(task, serial_output, code)",
+    "4. result['success']=True → salva nel DB (Fase 6 Learner)",
+    "5. result['success']=False → usa result['suggestions'] per patch + retry (max 3x)"
+  ],
+
+  "integrazione_loop": {
+    "dopo_evaluate_false": "new_code = generator.patch_code(code, [], {'analysis': suggestions})\ncompile_ok, code, _ = _phase_compile_loop(new_code, ...)\nif compile_ok: retry upload+eval",
+    "max_tentativi": 3
+  }
+}

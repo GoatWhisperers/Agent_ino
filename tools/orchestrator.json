@@ -1,0 +1,55 @@
+{
+  "tool": "orchestrator",
+  "modulo": "agent.orchestrator.Orchestrator",
+  "gpu": "MI50 (porta 11434) — risposta ~5 min con /no_think",
+
+  "uso": "from agent.orchestrator import Orchestrator\norch = Orchestrator()\nplan = orch.plan_task(task, context, mode)",
+
+  "funzioni": {
+    "plan_task": {
+      "firma": "plan_task(task: str, context: str, mode: str = 'NEW') -> dict",
+      "scopo": "Pianifica il task: approccio, librerie necessarie, note tecniche",
+      "output": {
+        "approach": "str — approccio generale",
+        "libraries_needed": "list[str] — librerie da installare",
+        "key_points": "list[str] — punti chiave implementazione",
+        "note_tecniche": "list[str] — note hardware/firmware specifiche",
+        "vcap_frames": "int — N frame webcam da catturare (0=no visione)",
+        "vcap_interval_ms": "int — ms tra frame webcam",
+        "thinking": "str — ragionamento interno"
+      },
+      "DOPO": "Chiama check_libraries(plan['libraries_needed']) — STOP se mancano"
+    },
+
+    "plan_functions": {
+      "firma": "plan_functions(task: str, context: str, mode: str = 'NEW') -> dict",
+      "scopo": "Pianifica le funzioni del sketch con dipendenze topologiche",
+      "output": {
+        "globals_hint": "str — schema includes/defines/variabili globali",
+        "funzioni": "list[dict] — [{nome, firma, compito, dipende_da}]",
+        "thinking": "str"
+      },
+      "note": "Se funzioni=[] → usa generazione monolitica (generate_code)"
+    },
+
+    "analyze_errors": {
+      "firma": "analyze_errors(code: str, errors: list[dict]) -> dict",
+      "scopo": "Analizza errori compilatore e suggerisce fix per il patcher",
+      "input": {
+        "code": "str — codice sorgente con errori",
+        "errors": "list[dict] — da compile_sketch() errors"
+      },
+      "output": {
+        "analysis": "str — spiegazione errori",
+        "fix_hints": "list[str] — suggerimenti specifici",
+        "thinking": "str"
+      }
+    }
+  },
+
+  "modes": {
+    "NEW": "Task nuovo — genera da zero",
+    "CONTINUE": "Riprende progetto parziale esistente",
+    "MODIFY": "Modifica progetto funzionante"
+  }
+}
