@@ -56,18 +56,24 @@ TOOLS SEMPRE DISPONIBILI (senza list_tools):
   list_tools              → lista tools con descrizione 1 riga
   get_tool(name)          → schema completo di un tool
 
-FLUSSO TIPICO:
+FLUSSO OTTIMALE (MI50 pianifica, M40 genera codice in parallelo):
   1. plan_task            → approccio, librerie, vcap_frames
-  2. plan_functions       → lista funzioni da generare
-  3. generate_globals     → sezione #include/#define/variabili
-  4. generate_function    → genera ogni funzione (ripeti per ognuna)
+  2. plan_functions       → lista funzioni con firma e descrizione dettagliata
+  3. generate_globals     → sezione #include/#define/variabili globali
+  4. generate_all_functions → M40 genera TUTTE le funzioni in parallelo in una sola chiamata
   5. compile              → compila; se errori → analyze_errors → patch_code → compile
   6. upload_and_read      → carica ESP32, legge seriale
-  7. grab_frames          → cattura webcam SE task ha display (usa vcap_frames dal piano)
-  8. evaluate_text        → valuta con output seriale
-     evaluate_visual      → valuta con frame (se hai catturato)
+  7. grab_frames          → args: {"n_frames":5,"interval_ms":1200}
+  8. evaluate_visual      → valuta frame webcam
   9. save_to_kb           → salva se success=true
  10. {"done":true,...}
+
+REGOLE CRITICHE:
+- NON scrivere MAI codice nei tuoi args — usa generate_all_functions e M40 lo scrive
+- generate_all_functions riceve la lista funzioni da plan_functions e le genera tutte in parallelo
+- grab_frames usa SEMPRE args {"n_frames":5,"interval_ms":1200}
+- Display SSD1306 è MONOCROMATICO — solo WHITE, mai YELLOW/RED/BLUE
+- generate_globals e generate_all_functions richiedono che plan_functions sia già stato chiamato
 
 Rispondi SOLO con JSON valido. Nessun testo aggiuntivo."""
 
@@ -169,11 +175,25 @@ def _generate_globals(args: dict, sess: _Session) -> dict:
 
 def _generate_function(args: dict, sess: _Session) -> dict:
     from agent.generator import Generator
+    # MI50 può passare il codice direttamente in args (genera da solo)
+    # oppure solo il nome e M40 lo genera
+    nome = args.get("nome") or args.get("function") or args.get("name", "")
+    code_direct = args.get("code", "")
+
+    if code_direct:
+        # MI50 ha generato il codice direttamente — accettalo e salvalo
+        _phase(f"GEN {nome}()", "MI50 ha generato il codice direttamente")
+        sess.code = (sess.code or "") + "\n\n" + code_direct
+        sess.write_sketch(sess.code)
+        lines = len(code_direct.splitlines())
+        _dash("func_done", nome=nome, righe=lines)
+        return {"ok": True, "nome": nome, "lines": lines}
+
+    # Flusso normale: delega a M40
     if sess.nb is None:
         return {"error": "Chiama plan_functions prima di generate_function"}
-    nome = args.get("nome", "")
     if not nome:
-        return {"error": "Specifica args.nome"}
+        return {"error": "Specifica args.nome oppure args.code con il codice diretto"}
     _phase(f"GEN {nome}()", "M40 genera funzione")
     _dash("func_start", nome=nome)
     gen = Generator()
@@ -186,8 +206,60 @@ def _generate_function(args: dict, sess: _Session) -> dict:
     return {"ok": True, "nome": nome, "lines": lines}
 
 
+def _generate_all_functions(args: dict, sess: _Session) -> dict:
+    """Genera tutte le funzioni in parallelo usando M40 (thread pool)."""
+    from agent.generator import Generator
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    if sess.nb is None:
+        return {"error": "Chiama plan_functions prima di generate_all_functions"}
+
+    funzioni = [f["nome"] for f in (sess.nb.funzioni or [])]
+    if not funzioni:
+        return {"error": "Nessuna funzione nel notebook. Chiama plan_functions prima."}
+
+    _phase("GEN PARALLELO", f"M40 genera {len(funzioni)} funzioni in parallelo")
+    _dash("phase", name="M40 PARALLEL", detail=f"generando {len(funzioni)} funzioni: {', '.join(funzioni)}")
+
+    results = {}
+    errors = {}
+
+    def gen_one(nome):
+        gen = Generator()
+        return nome, gen.generate_function(nome=nome, nb=sess.nb)
+
+    with ThreadPoolExecutor(max_workers=min(len(funzioni), 4)) as pool:
+        futures = {pool.submit(gen_one, nome): nome for nome in funzioni}
+        for fut in as_completed(futures):
+            nome = futures[fut]
+            try:
+                nome, result = fut.result()
+                results[nome] = result["code"]
+                _dash("func_done", nome=nome, righe=len(result["code"].splitlines()))
+            except Exception as e:
+                errors[nome] = str(e)
+
+    # Aggiorna notebook e assembla sketch
+    for nome, code in results.items():
+        sess.nb.update_funzione(nome, stato="done", codice=code)
+
+    code, _ = sess.nb.assemble()
+    sess.write_sketch(code)
+
+    return {
+        "ok": True,
+        "generated": list(results.keys()),
+        "errors": errors,
+        "total_lines": len(code.splitlines()),
+    }
+
+
 def _compile(args: dict, sess: _Session) -> dict:
     from agent.compiler import compile_sketch, fix_known_api_errors
+    # MI50 può passare il codice completo direttamente in args
+    code_direct = args.get("code", "")
+    if code_direct and not sess.code:
+        sess.write_sketch(code_direct)
     if not sess.code:
         return {"error": "Nessun codice da compilare. Genera prima il codice."}
     sess.compile_attempts += 1
@@ -256,8 +328,8 @@ def _upload_and_read(args: dict, sess: _Session) -> dict:
 
 def _grab_frames(args: dict, sess: _Session) -> dict:
     from agent.grab import grab_now
-    n = int(args.get("n_frames", 3))
-    interval_ms = int(args.get("interval_ms", 1000))
+    n = int(args.get("n_frames") or args.get("count") or args.get("n") or 3)
+    interval_ms = int(args.get("interval_ms") or args.get("interval") or 1000)
     _phase("GRAB", f"webcam cattura {n} frame")
     result = grab_now(n_frames=n, interval_ms=interval_ms)
     if result.get("ok"):
@@ -340,9 +412,10 @@ _REGISTRY = {
     "search_kb":         _search_kb,
     "plan_task":         _plan_task,
     "plan_functions":    _plan_functions,
-    "generate_globals":  _generate_globals,
-    "generate_function": _generate_function,
-    "compile":           _compile,
+    "generate_globals":       _generate_globals,
+    "generate_function":      _generate_function,
+    "generate_all_functions": _generate_all_functions,
+    "compile":                _compile,
     "analyze_errors":    _analyze_errors,
     "patch_code":        _patch_code,
     "upload_and_read":   _upload_and_read,
@@ -406,7 +479,7 @@ def run(task: str, fqbn: str = "esp32:esp32:esp32", max_steps: int = 30) -> dict
     for step in range(1, max_steps + 1):
         print(f"\n[ToolAgent] ── Step {step}/{max_steps} ──", flush=True)
 
-        result = client.generate(messages, max_new_tokens=512, label=f"MI50→Agent[{step}]")
+        result = client.generate(messages, max_new_tokens=8192, label=f"MI50→Agent[{step}]")
         raw = result["response"]
         print(f"[ToolAgent] MI50: {raw[:300]}", flush=True)
 

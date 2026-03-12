@@ -174,7 +174,7 @@ class Orchestrator:
             {"role": "user", "content": "\n".join(user_parts)},
         ]
 
-        result = self.client.generate(messages, max_new_tokens=1024, label="MI50→Orchestrator")
+        result = self.client.generate(messages, max_new_tokens=8192, label="MI50→Orchestrator")
         parsed = _safe_json(
             result["response"],
             fallback={
@@ -213,7 +213,7 @@ class Orchestrator:
             {"role": "user", "content": "\n".join(user_parts)},
         ]
 
-        result = self.client.generate(messages, max_new_tokens=1024, label="MI50→FuncPlanner")
+        result = self.client.generate(messages, max_new_tokens=8192, label="MI50→FuncPlanner")
         parsed = _safe_json(
             result["response"],
             fallback={"globals_hint": "", "funzioni": []},
@@ -255,7 +255,7 @@ class Orchestrator:
             {"role": "user", "content": user_content},
         ]
 
-        result = self.client.generate(messages, max_new_tokens=1024, label="MI50→Orchestrator")
+        result = self.client.generate(messages, max_new_tokens=8192, label="MI50→Orchestrator")
         parsed = _safe_json(
             result["response"],
             fallback={

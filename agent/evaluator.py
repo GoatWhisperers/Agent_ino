@@ -74,7 +74,7 @@ class Evaluator:
             {"role": "user", "content": "\n".join(user_parts)},
         ]
 
-        result = self.client.generate(messages, max_new_tokens=512, label="MI50→Evaluator")
+        result = self.client.generate(messages, max_new_tokens=8192, label="MI50→Evaluator")
         parsed = _safe_json(
             result["response"],
             fallback={
@@ -145,7 +145,7 @@ class Evaluator:
             }
         ]
 
-        result = self.client.generate_with_images(messages, frame_paths, max_new_tokens=512)
+        result = self.client.generate_with_images(messages, frame_paths, max_new_tokens=8192)
         parsed = _safe_json(
             result["response"],
             fallback={

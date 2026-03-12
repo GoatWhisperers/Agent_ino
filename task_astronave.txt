@@ -1,0 +1,35 @@
+Disegna un'animazione su display OLED SSD1306 128x64 con ESP32 che simula un'astronave nello spazio.
+
+CONFIGURAZIONE HARDWARE:
+- Display: SSD1306 128x64 I2C
+- SDA: GPIO21, SCL: GPIO22
+- I2C address: 0x3C
+- Librerie: Adafruit_SSD1306.h, Adafruit_GFX.h, Wire.h
+- Costruttore: Adafruit_SSD1306 display(128, 64, &Wire, -1)
+- Init: display.begin(SSD1306_SWITCHCAPVCC, 0x3C)
+
+ASTRONAVE:
+- Vista da dietro e dall'alto (prospettiva 3/4 posteriore)
+- Disegnata con drawLine/drawTriangle: corpo centrale + due ali a delta che si allargano verso il basso, ugello motore al centro in basso
+- Posizionata al centro-basso dello schermo
+- Scala variabile: in fase boost_off si INGRANDISCE (scale=12), in fase boost_on si RIMPICCIOLISCE (scale=8)
+- Effetto flame: pixel lampeggianti sotto l'ugello SOLO durante boost_on — usare WHITE non YELLOW (display monocromatico)
+
+STELLE DI SFONDO:
+- 20-25 stelle sparse (array stars[25][2] e starVel[25])
+- Boost OFF: drift lento verso il basso, riposiziona in cima quando escono
+- Boost ON: warp radiale — ogni stella si allontana dal centro verso i bordi; riposiziona vicino al centro quando esce dallo schermo
+- ATTENZIONE: aggiornare sempre la variabile locale x,y prima di scrivere stars[i][0/1]
+
+CICLO ANIMAZIONE (loop con millis()):
+- Fase 1 (1500ms): boost OFF
+- Fase 2 (1000ms): boost ON
+- Target 20fps — check ogni 50ms
+- Niente Serial.println nel loop
+
+REQUISITI TECNICI:
+- display.clearDisplay() + display.display() ad ogni frame
+- Tutto in un singolo .ino
+- Solo colore WHITE (display monocromatico — no YELLOW, no RED, no BLUE)
+
+Dopo l'upload, usa grab_frames per catturare 5 frame (intervallo 1200ms) e valuta visivamente con evaluate_visual.

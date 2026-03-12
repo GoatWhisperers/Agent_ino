@@ -94,7 +94,7 @@ class Learner:
             {"role": "user", "content": user_content},
         ]
 
-        result = self.client.generate(messages, max_new_tokens=1024, label="MI50→Learner")
+        result = self.client.generate(messages, max_new_tokens=8192, label="MI50→Learner")
         parsed = _safe_json(
             result["response"],
             fallback={

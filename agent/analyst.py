@@ -101,7 +101,7 @@ class Analyst:
             },
         ]
 
-        result = self.client.generate(messages, max_new_tokens=1024, label="MI50→Analyst")
+        result = self.client.generate(messages, max_new_tokens=8192, label="MI50→Analyst")
         return result["response"]
 
     def analyze_project_state(self, project_dir: str) -> dict:
@@ -152,7 +152,7 @@ class Analyst:
             {"role": "user", "content": "\n".join(user_content_parts)},
         ]
 
-        result = self.client.generate(messages, max_new_tokens=1024, label="MI50→Analyst")
+        result = self.client.generate(messages, max_new_tokens=8192, label="MI50→Analyst")
         parsed = _safe_json(
             result["response"],
             fallback={
@@ -190,7 +190,7 @@ class Analyst:
             },
         ]
 
-        result = self.client.generate(messages, max_new_tokens=1024, label="MI50→Analyst")
+        result = self.client.generate(messages, max_new_tokens=8192, label="MI50→Analyst")
         parsed = _safe_json(
             result["response"],
             fallback={

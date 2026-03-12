@@ -14,10 +14,55 @@ L'interfaccia pubblica è identica a prima:
 import json
 import re
 import threading
+import time
 import requests
-import agent.dashboard as dashboard
 
 MI50_SERVER_URL = "http://localhost:11434"
+_DASH_URL = "http://localhost:7700/emit"
+
+
+class _TokenBatcher:
+    """Accumula token e li manda alla dashboard via HTTP ogni 200ms."""
+
+    def __init__(self):
+        self._buf = []
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._t = threading.Thread(target=self._loop, daemon=True)
+        self._t.start()
+
+    def push(self, source: str, text: str):
+        with self._lock:
+            self._buf.append((source, text))
+
+    def flush(self):
+        self._send()
+
+    def _send(self):
+        with self._lock:
+            if not self._buf:
+                return
+            # Raggruppa per source consecutiva
+            batches: list[tuple[str, str]] = []
+            for src, txt in self._buf:
+                if batches and batches[-1][0] == src:
+                    batches[-1] = (src, batches[-1][1] + txt)
+                else:
+                    batches.append((src, txt))
+            self._buf.clear()
+        for src, txt in batches:
+            try:
+                requests.post(_DASH_URL, json={"type": "token", "source": src, "text": txt},
+                              timeout=1)
+            except Exception:
+                pass
+
+    def _loop(self):
+        while not self._stop.wait(0.2):
+            self._send()
+
+
+_batcher = _TokenBatcher()
 _DEFAULT_TIMEOUT = 1200  # 20 min — le risposte di MI50 possono essere lunghe
 
 
@@ -92,7 +137,7 @@ class MI50Client:
                     continue
 
                 raw += token
-                dashboard.token("mi50", token)
+                _batcher.push("mi50", token)
 
                 if "<think>" in token:
                     in_think = True
@@ -106,6 +151,7 @@ class MI50Client:
                 print(token, end="", flush=True)
 
         print()  # newline finale
+        _batcher.flush()
         thinking, response = self._extract_thinking(raw)
         return {"thinking": thinking, "response": response, "raw": raw}
 
