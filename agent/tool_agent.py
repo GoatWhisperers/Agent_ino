@@ -748,16 +748,40 @@ def _patch_code(args: dict, sess: _Session) -> dict:
     analysis = args.get("analysis", "")
     _phase("PATCH", "M40 corregge il codice")
     gen = Generator()
-    result = gen.patch_code(code=sess.code, errors=errors, analysis=analysis)
-    sess.write_sketch(result["code"])
+
+    original_code = sess.code
+    original_lines = len(original_code.splitlines())
+
+    result = gen.patch_code(code=original_code, errors=errors, analysis=analysis)
+    patched_code = result["code"]
+    patched_lines = len(patched_code.splitlines())
+
+    # Rilevazione regressione: se il patch ha ridotto il codice di oltre il 40%
+    # significa che M40 ha eliminato funzioni — scarta il patch e torna all'originale
+    if patched_lines < original_lines * 0.6:
+        if sess.logger:
+            sess.logger.log(
+                f"[PATCH REGRESSION] patch: {patched_lines} righe vs originale: {original_lines} righe "
+                f"({patched_lines/original_lines*100:.0f}%) — patch scartato, ripristino originale"
+            )
+        # Non sovrascrivere il codice, resta sul codice originale
+        sess.set_phase(_Session.PHASE_COMPILING)
+        return {
+            "ok": False,
+            "lines": patched_lines,
+            "warning": f"Patch scartato: regressione {original_lines}→{patched_lines} righe. "
+                       "Il codice originale è stato ripristinato. Analizza gli errori più attentamente."
+        }
+
+    sess.write_sketch(patched_code)
     # Dopo il patch torniamo a compilare
     sess.set_phase(_Session.PHASE_COMPILING)
     if sess.logger:
-        sess.logger.save_code(result["code"], label=f"patch{sess.compile_attempts}")
-        sess.logger.log(f"patch_code: {len(result['code'].splitlines())} righe")
+        sess.logger.save_code(patched_code, label=f"patch{sess.compile_attempts}")
+        sess.logger.log(f"patch_code: {patched_lines} righe (originale: {original_lines})")
         if result.get("thinking"):
             sess.logger.log(f"[THINK/M40/patch] {result['thinking'][:2000]}")
-    return {"ok": True, "lines": len(result["code"].splitlines())}
+    return {"ok": True, "lines": patched_lines}
 
 
 def _upload_and_read(args: dict, sess: _Session) -> dict:

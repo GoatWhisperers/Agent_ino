@@ -112,6 +112,9 @@ REGOLE FONDAMENTALI — RISPETTALE TUTTE:
 - Rimuovi SOLO i #include che causano errori "No such file or directory".
 - Se l'errore è un backtick ` o ``` nel codice: rimuovi SOLO il backtick, nient'altro.
 - Output: SOLO il codice corretto completo, senza markdown (NO ```, NO ```cpp), senza spiegazioni.
+- CRITICO: il codice in output deve avere ALMENO tante righe quante ne ha il codice in input.
+  Se il tuo output ha molte meno righe del codice originale, significa che hai eliminato funzioni — NON farlo.
+- setup() e loop() DEVONO essere presenti nel codice in output. Se mancano, aggiungili.
 
 REGOLA BACKTICK: se l'errore è "stray '`'" o "'cpp' does not name a type":
 → Rimuovi solo i caratteri ``` e ```cpp all'inizio/fine del codice.

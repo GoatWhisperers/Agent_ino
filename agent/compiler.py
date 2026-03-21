@@ -76,8 +76,72 @@ _INCLUDE_FIXES = {
 }
 
 
+def fix_italian_pseudocode(code: str) -> str:
+    """Converte righe di pseudocodice italiano senza '//' in commenti C++ validi.
+
+    M40 a volte lascia testo descrittivo come codice eseguibile invece di commentarlo.
+    Pattern tipici: 'Solo su prede. dx=dy=0.', 'Trova la preda più vicina.', ecc.
+    Questa funzione li converte in commenti prima della compilazione.
+    """
+    import re
+    fixed_lines = []
+    for line in code.splitlines():
+        stripped = line.lstrip()
+        # Salta righe già valide: vuote, commenti, preprocessore, parentesi, keywords C++
+        if (not stripped
+                or stripped.startswith("//")
+                or stripped.startswith("/*")
+                or stripped.startswith("#")
+                or stripped.startswith("{")
+                or stripped.startswith("}")
+                or stripped.startswith("*")):
+            fixed_lines.append(line)
+            continue
+        # In C++ una riga non può terminare con '.' (a meno che sia dentro una stringa).
+        # Se termina con '.' è pseudocodice italiano → commentarla.
+        # Eccezione: righe che iniziano con '"' (stringhe letterali) o sono float literals.
+        ends_with_dot = stripped.rstrip().endswith(".")
+        is_string_literal = stripped.startswith('"') or stripped.startswith("'")
+        is_float_literal = re.match(r"^[\d\s\+\-\*\/\.]+$", stripped)
+        if ends_with_dot and not is_string_literal and not is_float_literal:
+            indent = line[: len(line) - len(stripped)]
+            # Commenta la riga pseudocodice
+            fixed_lines.append(f"{indent}// {stripped}")
+            # Estrai dichiarazioni implicite da assegnamenti concatenati tipo cx=cy=0; cnt=0.
+            # Cattura tutti gli identificatori a sinistra di "=...0"
+            # Es: "dx=dy=0; cnt=0." → vars: [dx, dy, cnt]
+            all_vars = re.findall(r"\b([a-z_][a-z_0-9]*)\s*=", stripped.lower())
+            # Rimuovi variabili che sono già parametri della funzione corrente
+            # (cerca la firma della funzione nelle righe precedenti)
+            func_params: set[str] = set()
+            for prev in reversed(fixed_lines[-20:]):
+                m = re.search(r"\w+\s*\([^)]*\)\s*\{?\s*$", prev)
+                if m:
+                    param_names = re.findall(r"\b([a-z_][a-z_0-9]*)\s*[,)]", prev)
+                    func_params = set(param_names)
+                    break
+            decls = []
+            seen: set[str] = set()
+            for var in all_vars:
+                if var in seen or var in func_params:
+                    continue
+                seen.add(var)
+                if var in ("cnt", "n", "i", "j", "k"):
+                    decls.append(f"int {var} = 0;")
+                elif var in ("cx", "cy", "dx", "dy", "fx", "fy", "ax", "ay", "sx", "sy",
+                             "d", "spd", "angle", "minDist"):
+                    decls.append(f"float {var} = 0;")
+            if decls:
+                fixed_lines.append(f"{indent}{' '.join(decls)}")
+        else:
+            fixed_lines.append(line)
+    return "\n".join(fixed_lines)
+
+
 def fix_known_includes(code: str) -> str:
     """Sostituisce include noti errati con quelli corretti prima di compilare."""
+    # Fix pseudocodice italiano prima degli altri fix
+    code = fix_italian_pseudocode(code)
     for wrong, correct in _INCLUDE_FIXES.items():
         if wrong != correct:
             code = code.replace(wrong, correct)
