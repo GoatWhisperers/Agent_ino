@@ -193,3 +193,78 @@ def remove_snippet(sid: str) -> None:
         collection.delete(ids=[sid])
     except Exception:
         pass
+
+
+def index_lesson(
+    lid: str,
+    task_type: str,
+    lesson: str,
+    spec_hint: str = "",
+    hardware_quirk: str = "",
+    board: str = "",
+) -> None:
+    """Indicizza una lezione nella collection 'lessons'."""
+    collection = get_collection("lessons")
+    document = f"{task_type}: {lesson}"
+    if spec_hint:
+        document += f"\nHint: {spec_hint}"
+    if hardware_quirk:
+        document += f"\nHW: {hardware_quirk}"
+    metadata = {
+        "task_type": task_type,
+        "lesson": lesson,
+        "spec_hint": spec_hint or "",
+        "hardware_quirk": hardware_quirk or "",
+        "board": board or "",
+    }
+    collection.upsert(ids=[lid], documents=[document], metadatas=[metadata])
+
+
+def search_lessons(query: str, n: int = 5, board: str = "") -> List[Dict]:
+    """Cerca lezioni semanticamente simili alla query.
+
+    Ritorna lista di dict con: id, task_type, lesson, spec_hint, hardware_quirk, board, distance
+    """
+    collection = get_collection("lessons")
+    try:
+        count = collection.count()
+    except Exception:
+        count = 0
+    if count == 0:
+        return []
+
+    n_actual = min(n, count)
+    where = {"board": board} if board else None
+    kwargs = {
+        "query_texts": [query],
+        "n_results": n_actual,
+        "include": ["metadatas", "distances"],
+    }
+    if where:
+        kwargs["where"] = where
+
+    try:
+        results = collection.query(**kwargs)
+    except Exception:
+        # fallback senza filtro board
+        results = collection.query(
+            query_texts=[query],
+            n_results=n_actual,
+            include=["metadatas", "distances"],
+        )
+
+    output = []
+    if results and results.get("ids") and results["ids"][0]:
+        for i, rid in enumerate(results["ids"][0]):
+            meta = results["metadatas"][0][i] if results.get("metadatas") else {}
+            dist = results["distances"][0][i] if results.get("distances") else None
+            output.append({
+                "id": rid,
+                "task_type": meta.get("task_type", ""),
+                "lesson": meta.get("lesson", ""),
+                "spec_hint": meta.get("spec_hint", ""),
+                "hardware_quirk": meta.get("hardware_quirk", ""),
+                "board": meta.get("board", ""),
+                "distance": dist,
+            })
+    return output

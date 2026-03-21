@@ -81,6 +81,16 @@ def fix_known_includes(code: str) -> str:
     for wrong, correct in _INCLUDE_FIXES.items():
         if wrong != correct:
             code = code.replace(wrong, correct)
+    # SSD1306 è MONOCROMATICO — sostituisce colori inesistenti con WHITE
+    for bad_color in ("SSD1306_GREEN", "SSD1306_RED", "SSD1306_BLUE",
+                      "SSD1306_YELLOW", "SSD1306_CYAN", "SSD1306_MAGENTA",
+                      "SSD1306_ORANGE", "SSD1306_BLACK"):
+        code = code.replace(bad_color, "SSD1306_WHITE")
+    # Adafruit_GFX::WHITE / Adafruit_GFX::BLACK ecc. — invalid C++ (WHITE è un #define,
+    # non un membro della classe). Sostituisci con le costanti SSD1306_ equivalenti.
+    code = re.sub(r"Adafruit_GFX\s*::\s*WHITE",   "SSD1306_WHITE",   code)
+    code = re.sub(r"Adafruit_GFX\s*::\s*BLACK",   "SSD1306_BLACK",   code)
+    code = re.sub(r"Adafruit_GFX\s*::\s*INVERSE", "SSD1306_INVERSE", code)
     return code
 
 

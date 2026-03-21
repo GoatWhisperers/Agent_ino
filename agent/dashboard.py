@@ -479,10 +479,12 @@ function handleEvent(ev) {
           mi50Tok.textContent = mi50TokenCount + ' tok';
           autoScroll(mi50Body);
         }
-      } else if (ev.source === 'm40') {
-        if (!m40Current) {
-          const cls = ev.text.includes('```') || ev.text.includes('{') ? 'code-block' : 'response';
+      } else if (ev.source === 'm40' || ev.source === 'm40-think') {
+        const isThink = ev.source === 'm40-think';
+        if (!m40Current || (isThink !== (m40Current.className === 'thinking'))) {
+          const cls = isThink ? 'thinking' : (ev.text.includes('```') || ev.text.includes('{') ? 'code-block' : 'response');
           m40Current = newTextNode(m40FuncDiv || m40Body, cls);
+          if (isThink && m40Current.textContent === '') m40Current.textContent = '💭 ';
         }
         m40Current.textContent += ev.text;
         m40TokenCount++;

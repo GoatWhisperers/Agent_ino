@@ -170,7 +170,7 @@ class Orchestrator:
             user_parts.append(f"\nContesto:\n{context}")
 
         messages = [
-            {"role": "system", "content": _PLAN_SYSTEM},
+            {"role": "system", "content": "/no_think\n" + _PLAN_SYSTEM},
             {"role": "user", "content": "\n".join(user_parts)},
         ]
 
@@ -213,6 +213,8 @@ class Orchestrator:
             {"role": "user", "content": "\n".join(user_parts)},
         ]
 
+        # plan_functions è meccanico (elenca funzioni) — no thinking, risposta rapida
+        messages[0]["content"] = "/no_think\n" + messages[0]["content"]
         result = self.client.generate(messages, max_new_tokens=8192, label="MI50→FuncPlanner")
         parsed = _safe_json(
             result["response"],

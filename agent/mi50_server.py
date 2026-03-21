@@ -11,11 +11,12 @@ Verifica:
     curl http://localhost:11434/health
 
 Limiti di contesto:
-    MAX_INPUT_TOKENS = 6144  — input troncato a questo valore (OOM prevention)
-    max_new_tokens default = 1024
-    Con attn_implementation='eager' (no Triton/flash-attn):
-      - Prefill peak VRAM a 6144 tok: ~18GB modello + ~3GB attn = ~21GB su 32GB ✓
-      - Nessun SIGSEGV da kernel Triton su gfx906
+    MAX_INPUT_TOKENS = 24576 — input troncato a questo valore
+    max_new_tokens default = 8192
+    Con attn_implementation='sdpa' (PyTorch builtin, no Triton, no flash-attn library):
+      - Memoria attenzione O(N·√N) invece di O(N²) — a 24K tok ~2GB invece di 33GB
+      - flash_sdp disabilitato esplicitamente (gfx906 non supporta FA2)
+      - efficient_sdp e math_sdp attivi — nessun SIGSEGV da Triton
 """
 
 import argparse
@@ -38,7 +39,7 @@ from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer, Tex
 
 MODEL_PATH = "/mnt/raid0/qwen3.5-9b"
 DEFAULT_PORT = 11434
-MAX_INPUT_TOKENS = 6144   # tronca l'input prima di dare alla GPU (OOM prevention)
+MAX_INPUT_TOKENS = 24576  # tronca l'input prima di dare alla GPU
 
 app = Flask(__name__)
 
@@ -46,31 +47,53 @@ app = Flask(__name__)
 _model = None
 _tokenizer = None
 _processor = None
-_generate_lock = threading.Lock()
+_generate_lock = threading.Lock()   # una sola generate alla volta (GPU è single-tenant)
+_processor_lock = threading.Lock()  # carica processor una sola volta
+
+
+_eos_token_ids: list[int] = []
 
 
 def _load_model():
-    global _model, _tokenizer
+    global _model, _tokenizer, _eos_token_ids
     print(f"[MI50Server] Caricamento tokenizer da {MODEL_PATH} ...", flush=True)
     _tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)
-    print("[MI50Server] Caricamento modello (bfloat16, eager) ...", flush=True)
+    # sdpa = PyTorch builtin memory-efficient attention, no Triton, no flash-attn library
+    # flash_sdp disabilitato: gfx906 non supporta FA2 (SIGSEGV)
+    # efficient_sdp + math_sdp attivi: safe su gfx906, memoria O(N·√N)
+    torch.backends.cuda.enable_flash_sdp(False)
+    torch.backends.cuda.enable_mem_efficient_sdp(True)
+    torch.backends.cuda.enable_math_sdp(True)
+    print("[MI50Server] Caricamento modello (bfloat16, sdpa) ...", flush=True)
     _model = AutoModelForCausalLM.from_pretrained(
         MODEL_PATH,
         torch_dtype=torch.bfloat16,
         trust_remote_code=True,
-        attn_implementation="eager",   # no flash-attn: gfx906 non la supporta
+        attn_implementation="sdpa",    # memory-efficient, no Triton, safe su gfx906
     ).to("cuda")
     _model.eval()
+    # Stop tokens: <|endoftext|> + <|im_end|> (fine turno assistant in Qwen)
+    # Senza <|im_end|> il modello continua a generare turni finti (run-ahead hallucination)
+    eos = set()
+    for tok in ["<|endoftext|>", "<|im_end|>", "<|end|>"]:
+        tid = _tokenizer.convert_tokens_to_ids(tok)
+        if isinstance(tid, int) and tid != _tokenizer.unk_token_id:
+            eos.add(tid)
+    if _tokenizer.eos_token_id is not None:
+        eos.add(_tokenizer.eos_token_id)
+    _eos_token_ids = sorted(eos)
+    print(f"[MI50Server] EOS token ids: {_eos_token_ids}", flush=True)
     free_gb = torch.cuda.mem_get_info(0)[0] / 1024**3
     print(f"[MI50Server] ✅ Modello caricato. VRAM libera: {free_gb:.1f} GB", flush=True)
 
 
 def _get_processor():
     global _processor
-    if _processor is None:
-        print("[MI50Server] Caricamento AutoProcessor (visione) ...", flush=True)
-        _processor = AutoProcessor.from_pretrained(MODEL_PATH, trust_remote_code=True)
-        print("[MI50Server] AutoProcessor caricato.", flush=True)
+    with _processor_lock:
+        if _processor is None:
+            print("[MI50Server] Caricamento AutoProcessor (visione) ...", flush=True)
+            _processor = AutoProcessor.from_pretrained(MODEL_PATH, trust_remote_code=True)
+            print("[MI50Server] AutoProcessor caricato.", flush=True)
     return _processor
 
 
@@ -127,13 +150,15 @@ def generate():
                 do_sample=False,
                 temperature=None,
                 top_p=None,
-                pad_token_id=_tokenizer.eos_token_id,
+                eos_token_id=_eos_token_ids or None,
+                pad_token_id=(_eos_token_ids[0] if _eos_token_ids else _tokenizer.eos_token_id),
             )
 
         input_len = inputs["input_ids"].shape[1]
         new_ids = output_ids[0][input_len:]
         raw = _tokenizer.decode(new_ids, skip_special_tokens=True)
 
+    torch.cuda.empty_cache()
     thinking, response = _extract_thinking(raw)
     return jsonify({"thinking": thinking, "response": response, "raw": raw})
 
@@ -172,7 +197,8 @@ def generate_stream():
         do_sample=False,
         temperature=None,
         top_p=None,
-        pad_token_id=_tokenizer.eos_token_id,
+        eos_token_id=_eos_token_ids or None,
+        pad_token_id=(_eos_token_ids[0] if _eos_token_ids else _tokenizer.eos_token_id),
         streamer=streamer,
     )
 
@@ -180,6 +206,8 @@ def generate_stream():
         with _generate_lock:
             with torch.no_grad():
                 _model.generate(**gen_kwargs)
+        # Libera KV cache e frammentazione VRAM dopo ogni generazione
+        torch.cuda.empty_cache()
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
@@ -242,12 +270,14 @@ def generate_with_images():
                 do_sample=False,
                 temperature=None,
                 top_p=None,
-                pad_token_id=_tokenizer.eos_token_id,
+                eos_token_id=_eos_token_ids or None,
+                pad_token_id=(_eos_token_ids[0] if _eos_token_ids else _tokenizer.eos_token_id),
             )
 
         new_ids = output_ids[0][input_len:]
         raw = _tokenizer.decode(new_ids, skip_special_tokens=True)
 
+    torch.cuda.empty_cache()
     thinking, response = _extract_thinking(raw)
     return jsonify({"thinking": thinking, "response": response, "raw": raw})
 
@@ -260,4 +290,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     _load_model()
-    app.run(host="0.0.0.0", port=args.port, threaded=False)
+    # threaded=True: Flask gestisce health check anche durante streaming
+    # _generate_lock garantisce che la GPU faccia una sola generate alla volta
+    app.run(host="0.0.0.0", port=args.port, threaded=True)

@@ -10,6 +10,10 @@ workspace/
 logs/
 knowledge/*.db
 knowledge/chroma_db/
+knowledge/chroma/
+
+# Claude memory (locale)
+.claude/
 
 # Modelli e binari
 bin/

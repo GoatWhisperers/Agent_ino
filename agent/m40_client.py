@@ -19,7 +19,7 @@ class M40Client:
     def generate(
         self,
         messages: list[dict],
-        max_tokens: int = 1024,
+        max_tokens: int = 2048,
         temperature: float = 0.1,
         label: str = "M40",
     ) -> dict:
@@ -66,7 +66,6 @@ class M40Client:
                     continue
 
                 raw += token
-                dashboard.token("m40", token)
 
                 # Cambia stile in base a thinking vs risposta
                 if "<think>" in token:
@@ -78,6 +77,8 @@ class M40Client:
                     print("\n  →  ", end="", flush=True)
                     token = token.replace("</think>", "")
 
+                # Dashboard: thinking con sorgente separata per stile diverso
+                dashboard.token("m40-think" if in_think else "m40", token)
                 print(token, end="", flush=True)
 
         print()  # newline finale

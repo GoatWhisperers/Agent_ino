@@ -108,6 +108,12 @@ def _capture_one(label: str = "") -> str | None:
     """
     Cattura un singolo frame con rpicam-still.
     Ritorna il path del file o None se fallisce.
+
+    Parametri ottimizzati per display OLED su sfondo scuro:
+    - AWB disabilitato, guadagni manuali neutrali per luce artificiale
+    - Contrasto aumentato per far emergere i pixel bianchi OLED
+    - Esposizione leggermente ridotta per non saturare l'OLED
+    - Sharpness aumentata per dettagli pixel
     """
     path = _next_path(label)
     cmd = [
@@ -119,6 +125,14 @@ def _capture_one(label: str = "") -> str | None:
         "--width",  str(WIDTH),
         "--height", str(HEIGHT),
         "-q", str(QUALITY),
+        # Bilanciamento bianco manuale: disabilita AWB, guadagni neutrali per luce LED/artificial
+        "--awbgains", "2.2,1.8",
+        # Contrasto aumentato: rende pixel OLED bianchi più netti sul nero
+        "--contrast", "1.8",
+        # Sharpness: migliora la definizione dei bordi pixel
+        "--sharpness", "2.0",
+        # EV leggermente negativo: evita sovraesposizione OLED brillante
+        "--ev", "-0.5",
     ]
     try:
         r = subprocess.run(cmd, capture_output=True, timeout=10)

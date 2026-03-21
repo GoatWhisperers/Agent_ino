@@ -30,10 +30,19 @@ NON aggiungere librerie che non vengono usate. Nomi corretti (solo se usate):
 - Servo: #include <Servo.h>
 - MQTT: #include <PubSubClient.h>
 
+REGOLA I2C ESP32: SEMPRE Wire.begin(21, 22) con pin espliciti in setup().
+NON usare Wire.begin() senza parametri — su alcuni ESP32 usa pin sbagliati.
+
 REGOLA SSD1306: il costruttore Adafruit_SSD1306 ha 4 parametri: (W, H, &Wire, rst_pin).
 Il 4° parametro è il pin di reset, NON l'indirizzo I2C. USA SEMPRE -1:
   Adafruit_SSD1306 display(128, 64, &Wire, -1);
 L'indirizzo I2C (0x3C) va in display.begin(SSD1306_SWITCHCAPVCC, 0x3C).
+
+REGOLA COLORI SSD1306: il display è MONOCROMATICO. Usa SOLO SSD1306_WHITE per disegnare.
+NON usare mai: SSD1306_GREEN, SSD1306_RED, SSD1306_BLUE, ecc. — non esistono.
+NON usare mai: Adafruit_GFX::WHITE — non è un membro di classe, è un #define, non funziona.
+Corretto: display.drawRect(x, y, w, h, SSD1306_WHITE);
+Sbagliato: display.drawRect(x, y, w, h, Adafruit_GFX::WHITE);
 """
 
 SYSTEM_FUNCTION = """Sei un esperto programmatore Arduino.
@@ -42,7 +51,20 @@ Output: SOLO il codice della funzione (firma + corpo), senza markdown, senza spi
 Includi la firma (es. "void setup() {") e la chiusura "}".
 Il codice deve compilare senza errori.
 
-FIRME CORRETTE (usale sempre):
+REGOLE HARDWARE ESP32:
+- Wire.begin(21, 22) — SEMPRE con pin espliciti, mai Wire.begin() senza args
+- Adafruit_SSD1306 display(128, 64, &Wire, -1) — 4° param = rst_pin = -1
+- display.begin(SSD1306_SWITCHCAPVCC, 0x3C) — indirizzo I2C qui, non nel costruttore
+- SSD1306_WHITE — unico colore valido, mai SSD1306_GREEN/RED/BLUE
+
+REGOLE CODICE:
+- Ogni responsabilità in UNA SOLA funzione — mai duplicare logica tra funzioni
+- loop() chiama ESATTAMENTE: updatePhysics(), updateDisplay() — nient'altro
+- NON chiamare resolveCollisions() o drawBalls() direttamente in loop() — sono già dentro updatePhysics()/updateDisplay()
+- Velocità iniziali: dopo random(), verifica sempre che vx!=0 e vy!=0 (if(vx==0) vx=1; if(vy==0) vy=1;)
+- FISICA con delay(16): tratta vx/vy come pixel/frame, NON usare dt moltiplicatore. "x += vx" non "x += vx*dt".
+  Velocità visibili su 128x64: vx/vy tra 1.5 e 3.0 px/frame. Con dt=0.016 e vx=3: movi 0.048px/frame = IMMOBILE.
+  Alternativa: se vuoi usare dt, usa velocità in px/sec: vx tra 80 e 150 (es. random(80,150)).
 - getTextBounds: display.getTextBounds(text, 0, 0, &x1, &y1, &tw, &th)
   Tipi: int16_t x1, y1; uint16_t tw, th;  — NON usare int per questi parametri
 - NON esiste display.textWidth() — usare getTextBounds
@@ -81,12 +103,29 @@ Se il piano specifica vcap_frames=0, ometti i segnali VCAP.
 SYSTEM_PATCH = """Sei un esperto programmatore Arduino.
 Correggi SOLO gli errori segnalati nel codice.
 
-REGOLE FONDAMENTALI:
-- NON aggiungere nuovi #include che non erano già presenti o non sono strettamente necessari
-- NON rimuovere funzionalità esistenti
-- Mantieni tutti gli #include già presenti che non causano errori
-- Rimuovi SOLO i #include che causano errori "No such file or directory"
-- Output: SOLO il codice corretto completo, senza markdown, senza spiegazioni
+REGOLE FONDAMENTALI — RISPETTALE TUTTE:
+- Correggi SOLO l'errore specifico indicato. Nient'altro.
+- NON rimuovere funzioni, anche se sembrano incomplete o hanno solo commenti.
+- NON semplificare funzioni in stub ("// Implement here", "// TODO", ecc.).
+- NON aggiungere nuovi #include non presenti o non necessari.
+- Mantieni TUTTI gli #include già presenti che non causano errori.
+- Rimuovi SOLO i #include che causano errori "No such file or directory".
+- Se l'errore è un backtick ` o ``` nel codice: rimuovi SOLO il backtick, nient'altro.
+- Output: SOLO il codice corretto completo, senza markdown (NO ```, NO ```cpp), senza spiegazioni.
+
+REGOLA BACKTICK: se l'errore è "stray '`'" o "'cpp' does not name a type":
+→ Rimuovi solo i caratteri ``` e ```cpp all'inizio/fine del codice.
+→ NON modificare nessuna funzione, nessuna logica, nessun include.
+→ Il corpo di ogni funzione deve rimanere IDENTICO all'originale.
+
+REGOLA COLORI SSD1306: il display è MONOCROMATICO. Usa SOLO SSD1306_WHITE.
+NON usare mai: SSD1306_GREEN, SSD1306_RED, SSD1306_BLUE, SSD1306_YELLOW, ecc.
+NON usare mai: Adafruit_GFX::WHITE — causa "expected unqualified-id before numeric constant".
+Usa SEMPRE: SSD1306_WHITE (o WHITE — è un alias definito dalla libreria).
+
+ERRORE "expected unqualified-id before numeric constant" in Adafruit_SSD1306.h:74
+→ Causa: macro #define con Adafruit_GFX::WHITE (o colori inesistenti SSD1306_GREEN ecc.)
+→ Fix: sostituisci Adafruit_GFX::WHITE con SSD1306_WHITE e rimuovi #define di colori
 """
 
 
@@ -133,7 +172,7 @@ class Generator:
             {"role": "user", "content": "\n".join(user_parts)},
         ]
 
-        result = self.client.generate(messages, max_tokens=2048, label="M40→Generator")
+        result = self.client.generate(messages, max_tokens=4096, label="M40→Generator")
         code = self._extract_code(result["response"] or result["raw"])
         return {
             "code": code,
@@ -141,29 +180,45 @@ class Generator:
             "raw": result["raw"],
         }
 
-    def generate_globals(self, nb) -> dict:
+    def generate_globals(self, nb, kb_example: str = "") -> dict:
         """
         Genera la sezione globals (#include, #define, variabili globali).
+        kb_example: snippet funzionante dalla KB — usato come riferimento per include e costruttori.
         Ritorna: {"code": str, "thinking": str}
         """
+        user_content = nb.context_for_globals()
+        if kb_example:
+            user_content += (
+                "\n\nESEMPIO FUNZIONANTE DALLA KB (usa come riferimento per include e costruttori):\n"
+                "```cpp\n" + kb_example[:800] + "\n```\n"
+                "Adatta al task corrente mantenendo la stessa struttura di include e costruttori."
+            )
         messages = [
             {"role": "system", "content": SYSTEM_GLOBALS},
-            {"role": "user", "content": nb.context_for_globals()},
+            {"role": "user", "content": user_content},
         ]
-        result = self.client.generate(messages, max_tokens=512, label="M40→Globals")
+        result = self.client.generate(messages, max_tokens=2048, label="M40→Globals")
         code = self._extract_code(result["response"] or result["raw"])
         return {"code": code, "thinking": result["thinking"]}
 
-    def generate_function(self, nome: str, nb) -> dict:
+    def generate_function(self, nome: str, nb, kb_example: str = "") -> dict:
         """
         Genera una singola funzione Arduino.
+        kb_example: snippet funzionante dalla KB — aiuta M40 a usare le API corrette.
         Ritorna: {"code": str, "thinking": str}
         """
+        user_content = nb.context_for_function(nome)
+        if kb_example:
+            # Mostra solo le prime 400 chars dell'esempio — basta per le API
+            user_content += (
+                "\n\nRIFERIMENTO (API corrette da esempio funzionante):\n"
+                "```cpp\n" + kb_example[:400] + "\n```"
+            )
         messages = [
             {"role": "system", "content": SYSTEM_FUNCTION},
-            {"role": "user", "content": nb.context_for_function(nome)},
+            {"role": "user", "content": user_content},
         ]
-        result = self.client.generate(messages, max_tokens=512, label=f"M40→{nome}()")
+        result = self.client.generate(messages, max_tokens=2048, label=f"M40→{nome}()")
         code = self._extract_code(result["response"] or result["raw"])
         return {"code": code, "thinking": result["thinking"]}
 
@@ -182,10 +237,13 @@ class Generator:
         """
         error_lines = []
         for e in errors:
-            line = e.get("line", "?")
-            etype = e.get("type", "error")
-            msg = e.get("message", "")
-            error_lines.append(f"  - Riga {line} [{etype}]: {msg}")
+            if isinstance(e, str):
+                error_lines.append(f"  - {e}")
+            else:
+                line = e.get("line", "?")
+                etype = e.get("type", "error")
+                msg = e.get("message", "")
+                error_lines.append(f"  - Riga {line} [{etype}]: {msg}")
         errors_text = "\n".join(error_lines) if error_lines else "  (nessun dettaglio)"
 
         user_content_parts = [
@@ -210,7 +268,7 @@ class Generator:
             {"role": "user", "content": "\n".join(user_content_parts)},
         ]
 
-        result = self.client.generate(messages, max_tokens=2048, label="M40→Patcher")
+        result = self.client.generate(messages, max_tokens=4096, label="M40→Patcher")
         patched_code = self._extract_code(result["response"] or result["raw"])
         return {
             "code": patched_code,

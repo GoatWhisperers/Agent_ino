@@ -65,6 +65,17 @@ CREATE TABLE IF NOT EXISTS runs (
     created_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS lessons (
+    id TEXT PRIMARY KEY,
+    task_type TEXT NOT NULL,       -- es. "OLED animation", "LED blink", "sensor read"
+    lesson TEXT NOT NULL,          -- la lezione: "specifica sempre posizioni iniziali hardcoded"
+    spec_hint TEXT,                -- cosa scrivere nella task description per prevenire il bug
+    hardware_quirk TEXT,           -- note hardware specifiche (nullable)
+    board TEXT DEFAULT '',         -- board a cui si applica, vuoto = universale
+    confirmed_count INTEGER DEFAULT 1,
+    created_at TEXT
+);
+
 INSERT OR IGNORE INTO boards VALUES ('arduino:avr:uno', 'Arduino Uno', NULL, 9600);
 INSERT OR IGNORE INTO boards VALUES ('arduino:avr:nano', 'Arduino Nano', NULL, 9600);
 INSERT OR IGNORE INTO boards VALUES ('arduino:avr:mega', 'Arduino Mega', NULL, 9600);
@@ -355,6 +366,80 @@ def add_run(
     finally:
         conn.close()
     return rid
+
+
+def add_lesson(
+    task_type: str,
+    lesson: str,
+    spec_hint: str = None,
+    hardware_quirk: str = None,
+    board: str = "",
+) -> str:
+    """Aggiunge una lezione appresa. Ritorna l'id."""
+    lid = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+    conn = _get_conn()
+    try:
+        conn.execute(
+            """
+            INSERT INTO lessons
+                (id, task_type, lesson, spec_hint, hardware_quirk, board,
+                 confirmed_count, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+            """,
+            (lid, task_type, lesson, spec_hint, hardware_quirk, board, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return lid
+
+
+def search_lessons(keyword: str, board: str = "", limit: int = 10) -> list:
+    """Cerca lezioni per keyword (anche multi-parola) in task_type, lesson, spec_hint.
+    Ogni parola viene cercata separatamente; si ritornano le righe che matchano almeno una."""
+    conn = _get_conn()
+    try:
+        words = [w for w in keyword.lower().split() if len(w) > 2]
+        if not words:
+            words = [keyword]
+        conditions = " OR ".join(
+            "(LOWER(task_type) LIKE ? OR LOWER(lesson) LIKE ? OR LOWER(spec_hint) LIKE ?)"
+            for _ in words
+        )
+        params = []
+        for w in words:
+            kw = f"%{w}%"
+            params += [kw, kw, kw]
+        params.append(board)
+        params.append(limit)
+        rows = conn.execute(
+            f"""
+            SELECT * FROM lessons
+            WHERE ({conditions})
+            ORDER BY
+                CASE WHEN board = ? THEN 0 ELSE 1 END,
+                confirmed_count DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def increment_lesson_confirmed(lid: str) -> None:
+    """Incrementa confirmed_count per una lezione (vista funzionare di nuovo)."""
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE lessons SET confirmed_count = confirmed_count + 1 WHERE id = ?",
+            (lid,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def get_recent_runs(n: int = 10) -> list:

@@ -63,7 +63,7 @@ class _TokenBatcher:
 
 
 _batcher = _TokenBatcher()
-_DEFAULT_TIMEOUT = 1200  # 20 min — le risposte di MI50 possono essere lunghe
+_DEFAULT_TIMEOUT = 3600  # 60 min — MI50 con thinking può impiegare molto
 
 
 class MI50Client:
@@ -96,7 +96,7 @@ class MI50Client:
     def generate(
         self,
         messages: list[dict],
-        max_new_tokens: int = 1024,
+        max_new_tokens: int = 8192,
         label: str = "MI50",
     ) -> dict:
         """
@@ -159,7 +159,7 @@ class MI50Client:
         self,
         messages: list[dict],
         image_paths: list[str],
-        max_new_tokens: int = 1024,
+        max_new_tokens: int = 8192,
         label: str = "MI50-vision",
     ) -> dict:
         """

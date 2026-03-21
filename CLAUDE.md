@@ -4,11 +4,15 @@
 
 All'inizio di ogni sessione Claude DEVE:
 1. Leggere `STATO.md` — stato corrente del progetto
-2. Verificare i servizi:
-   ```bash
-   curl -s http://localhost:11434/health   # MI50 server
-   curl -s http://localhost:11435/health   # M40 llama-server
-   ```
+2. Leggere `PREFLIGHT.md` ed eseguire **tutti gli step** in ordine:
+   - STEP 1: Test inferenza MI50 (chat reale, non solo health)
+   - STEP 2: Test inferenza M40 (chat reale, non solo health)
+   - STEP 3: Raspberry Pi raggiungibile + porta seriale libera
+   - STEP 4: Webcam funzionante (grab_now → frame valido)
+   - STEP 5: Dashboard attiva su porta 7700
+   - STEP 6: Warm-up run (task semplice, Claude esegue i tool manualmente)
+   - STEP 7: Ricerca KB per esempio simile al task reale
+   - STEP 8: Preparare task con contesto completo per il programmatore
 3. Se i servizi non sono attivi, avviarli:
    ```bash
    cd /home/lele/codex-openai/programmatore_di_arduini
@@ -16,7 +20,9 @@ All'inizio di ogni sessione Claude DEVE:
    bash agent/start_servers.sh
    ```
    (`start_servers.sh` gestisce VRAM, check porta, kill processi bloccanti — NON avviare i server manualmente)
-4. Riassumere lo stato a Lele e proporre cosa fare.
+4. Riassumere lo stato a Lele con semaforo preflight e proporre cosa fare.
+
+**REGOLA:** Claude NON lancia `python agent/tool_agent.py` finché tutti i check del PREFLIGHT non sono verdi.
 
 ---
 
@@ -71,6 +77,22 @@ Richiede conferma:
 - MI50 e M40 devono essere avviati come server prima di qualsiasi run
 - Per ESP32: baud rate 115200, FQBN `esp32:esp32:esp32`
 - Per Arduino AVR: baud rate 9600, FQBN `arduino:avr:uno`
+
+## Regole fondamentali — stabilite 2026-03-19
+
+### LOGGING: ogni run va archiviata
+- I log delle run NON vanno in `/tmp` — vanno in `logs/runs/<timestamp>_<task>/`
+- Ogni run deve salvare: log completo, codice per ogni versione, errori compilazione,
+  output seriale, frame webcam, risultato finale in `result.json`
+- Lo scopo è avere riscontro storico dell'avanzamento e dei bug ricorrenti
+
+### RESUME: mai ricominciare da capo
+- Se una run incontra un bug o un errore, si corregge il problema e si riparte
+  dall'ultimo checkpoint valido — MAI ripartire da `plan_task`
+- La sessione va serializzata su disco dopo ogni fase completata con successo
+- Il resume deve essere possibile con: `python agent/tool_agent.py --resume <run_dir>`
+- Questa regola vale anche per Claude: se il tool_agent crasha, Claude corregge
+  il bug e fa ripartire dal checkpoint, non rilancia da zero
 
 ---
 
