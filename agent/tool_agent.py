@@ -81,6 +81,8 @@ Sei un agente autonomo per Arduino/ESP32.
 REGOLA 1 — UNA SOLA AZIONE PER RISPOSTA. Rispondi con UN SOLO oggetto JSON, poi aspetta il risultato.
 REGOLA 2 — NON scrivere MAI codice negli args. M40 genera tutto il codice.
 REGOLA 3 — generate_globals e generate_all_functions usano args:{} (nessun parametro).
+REGOLA 4 — SE il messaggio di sistema dice ISTRUZIONE: chiama ESATTAMENTE quel tool. NON fare altro.
+REGOLA 5 — NON richiamare plan_task/plan_functions/generate_globals se sei già in fase upload o evaluate.
 
 FORMATO (scegli UNO):
   Tool call : {"tool":"nome","args":{...},"reason":"perché"}
@@ -95,7 +97,7 @@ FLUSSO (un passo alla volta, aspetta il risultato prima di procedere):
      se errori → patch_code → compile  (max 3 cicli)
      patch_code args: {"errors": [...], "analysis": "descrizione fix"}
      M40 riscrive il codice correggendo gli errori — NON serve analyze_errors prima
-  6. upload_and_read
+  6. upload_and_read           ← se il messaggio dice "pronto per upload", chiama QUESTO
   7. OBBLIGATORIO se il task usa OLED/display: grab_frames → evaluate_visual
      ⚠ NON saltare evaluate_visual per task display — serve vedere il risultato con gli occhi
      ALTRIMENTI (solo LED, solo seriale, nessun display): evaluate_text
@@ -390,7 +392,10 @@ class _ContextManager:
         """Fase uploading: task + conferma che il codice compila."""
         parts = [
             f"TASK: {sess.task[:80]}\nBOARD: {sess.fqbn}\n"
-            f"STATO: codice compilato correttamente, pronto per upload su ESP32"
+            f"STATO: codice compilato correttamente, pronto per upload su ESP32.\n"
+            f"ISTRUZIONE CRITICA: chiama SUBITO upload_and_read con args:{{}}. "
+            f"NON chiamare plan_task, plan_functions, generate_globals o generate_all_functions — "
+            f"il codice è già completo e compilato. L'unico passo rimasto è l'upload sull'hardware."
         ]
         if self._summary:
             parts.append("COMPLETATI:\n" + "\n".join(self._summary[-2:]))
@@ -398,7 +403,12 @@ class _ContextManager:
 
     def _anchor_evaluating(self, sess: _Session) -> str:
         """Fase evaluating: task + output seriale + frame. Niente codice."""
-        parts = [f"TASK: {sess.task[:80]}\nBOARD: {sess.fqbn}"]
+        parts = [
+            f"TASK: {sess.task[:80]}\nBOARD: {sess.fqbn}\n"
+            f"STATO: codice caricato sull'ESP32, serial e frame disponibili.\n"
+            f"ISTRUZIONE: chiama evaluate_visual o evaluate_text per valutare il risultato. "
+            f"NON chiamare plan_task, generate_globals o generate_all_functions."
+        ]
         if self._summary:
             parts.append("COMPLETATI:\n" + "\n".join(self._summary[-2:]))
         if sess.serial:
@@ -670,13 +680,47 @@ def _generate_all_functions(args: dict, sess: _Session) -> dict:
             except Exception as e:
                 errors[nome] = str(e)
 
+    # Retry automatico per funzioni fallite (timeout M40, connessione persa, ecc.)
+    if errors:
+        retry_names = list(errors.keys())
+        if sess.logger:
+            sess.logger.log(f"[RETRY] {len(retry_names)} funzioni fallite al primo tentativo: {retry_names}")
+        errors_retry = {}
+        with ThreadPoolExecutor(max_workers=min(len(retry_names), 2)) as pool:
+            futures = {pool.submit(gen_one, nome): nome for nome in retry_names}
+            for fut in as_completed(futures):
+                nome = futures[fut]
+                try:
+                    nome, result = fut.result()
+                    results[nome] = result["code"]
+                    errors.pop(nome, None)  # rimosso dagli errori
+                    if sess.logger:
+                        sess.logger.log(f"[RETRY OK] {nome}: {len(result['code'].splitlines())} righe")
+                    _dash("func_done", nome=nome, righe=len(result["code"].splitlines()))
+                except Exception as e:
+                    errors_retry[nome] = str(e)
+        errors.update(errors_retry)
+
     for nome, code in results.items():
         sess.nb.update_funzione(nome, stato="done", codice=code)
 
     code, _ = sess.nb.assemble()
     sess.write_sketch(code)
 
-    # Fase → compiling: il codice esiste, prossimo passo è compilare
+    # Fase → compiling solo se tutte le funzioni sono state generate
+    if errors:
+        if sess.logger:
+            sess.logger.log(f"[WARN] generate_all_functions: {len(errors)} funzioni non generate: {list(errors.keys())}")
+        # Non avanzare a compiling — rimane in generating perché mancano funzioni
+        return {
+            "ok":      False,
+            "generated": list(results.keys()),
+            "errors":  errors,
+            "missing": list(errors.keys()),
+            "total_lines": len(code.splitlines()),
+            "warning": f"Funzioni non generate (timeout M40): {list(errors.keys())}. Richiama generate_all_functions per ritentare.",
+        }
+
     sess.set_phase(_Session.PHASE_COMPILING)
     if sess.logger:
         sess.logger.save_code(code, label="generated")

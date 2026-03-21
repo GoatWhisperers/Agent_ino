@@ -138,10 +138,31 @@ def fix_italian_pseudocode(code: str) -> str:
     return "\n".join(fixed_lines)
 
 
+def fix_m40_runtime_bugs(code: str) -> str:
+    """Corregge bug ricorrenti nel codice generato da M40 — rilevati empiricamente.
+
+    Applicato PRIMA della compilazione, indipendentemente dagli errori.
+    """
+    # Bug 1: timer millis() dichiarati come int invece di unsigned long
+    # → int lastSerialTime / int spawnTimer ecc. causano overflow dopo 32s
+    for timer_var in ("lastSerialTime", "serialTimer", "spawnTimer",
+                      "respawnTimer", "catchTimer", "blinkTimer",
+                      "prevMillis", "lastMillis", "timerMillis"):
+        # Sostituisce solo le dichiarazioni globali/locali, non i parametri funzione
+        code = re.sub(
+            rf"\bint\s+({timer_var})\s*=\s*0\s*;",
+            r"unsigned long \1 = 0;",
+            code,
+        )
+    return code
+
+
 def fix_known_includes(code: str) -> str:
     """Sostituisce include noti errati con quelli corretti prima di compilare."""
     # Fix pseudocodice italiano prima degli altri fix
     code = fix_italian_pseudocode(code)
+    # Fix bug runtime M40 ricorrenti
+    code = fix_m40_runtime_bugs(code)
     for wrong, correct in _INCLUDE_FIXES.items():
         if wrong != correct:
             code = code.replace(wrong, correct)
@@ -242,11 +263,42 @@ def _fix_getTextBounds_call(code: str) -> str:
     return code
 
 
+def _fix_dist_function(code: str) -> str:
+    """Aggiunge helper dist(x1,y1,x2,y2) se manca — M40 lo chiama ma non lo definisce."""
+    helper = (
+        "\n// Helper: distanza euclidea (M40 usa dist() che non esiste in Arduino)\n"
+        "float dist(float x1, float y1, float x2, float y2) {\n"
+        "  return sqrt(pow(x2 - x1, 2) + pow(y2 - y1, 2));\n"
+        "}\n"
+    )
+    # Inserisce dopo gli #include / #define iniziali, prima della prima funzione/struct
+    if "float dist(" in code or "inline float dist(" in code:
+        return code  # già definita
+    # Trova fine degli include/define
+    insert_pos = 0
+    for m in re.finditer(r"^(#include|#define|//|/\*)", code, re.MULTILINE):
+        insert_pos = m.end()
+    # Vai a fine della riga corrente
+    end_of_line = code.find("\n", insert_pos)
+    if end_of_line == -1:
+        return code + helper
+    return code[:end_of_line + 1] + helper + code[end_of_line + 1:]
+
+
+def _fix_setupPhysics_call(code: str) -> str:
+    """Rimuove chiamata a setupPhysics() se non definita — M40 la inventa a volte."""
+    # Rimuove la riga con setupPhysics()
+    code = re.sub(r"^\s*setupPhysics\s*\(\s*\)\s*;\s*\n", "", code, flags=re.MULTILINE)
+    return code
+
+
 # Mappa: pattern nel messaggio di errore → funzione di fix
 _API_ERROR_FIXES = [
     ("has no member named 'textWidth'",          _fix_getTextBounds_call),
     ("no matching function for call to 'Adafruit_SSD1306::getTextBounds", _fix_getTextBounds_call),
     ("has no member named '",                     _fix_display_userfunc_calls),
+    ("'dist' was not declared",                   _fix_dist_function),
+    ("'setupPhysics' was not declared",           _fix_setupPhysics_call),
 ]
 
 

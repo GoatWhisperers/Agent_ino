@@ -43,6 +43,15 @@ NON usare mai: SSD1306_GREEN, SSD1306_RED, SSD1306_BLUE, ecc. — non esistono.
 NON usare mai: Adafruit_GFX::WHITE — non è un membro di classe, è un #define, non funziona.
 Corretto: display.drawRect(x, y, w, h, SSD1306_WHITE);
 Sbagliato: display.drawRect(x, y, w, h, Adafruit_GFX::WHITE);
+
+REGOLA TIMER millis(): SEMPRE dichiarare i timer come unsigned long, MAI come int.
+Sbagliato: int lastSerialTime = 0;   ← overflow dopo 32 secondi → comportamento imprevedibile
+Corretto: unsigned long lastSerialTime = 0;
+Questo vale per: lastSerialTime, spawnTimer, prevMillis, lastMillis, ecc.
+
+REGOLA dist(): La funzione dist(x1,y1,x2,y2) NON esiste in Arduino/ESP32.
+Per calcolare distanza usare: sqrt(pow(x2-x1,2) + pow(y2-y1,2))
+Oppure definire esplicitamente: float dist2d(float x1,float y1,float x2,float y2){return sqrt(pow(x2-x1,2)+pow(y2-y1,2));}
 """
 
 SYSTEM_FUNCTION = """Sei un esperto programmatore Arduino.
@@ -69,6 +78,9 @@ REGOLE CODICE:
   Tipi: int16_t x1, y1; uint16_t tw, th;  — NON usare int per questi parametri
 - NON esiste display.textWidth() — usare getTextBounds
 - Le funzioni utente NON sono metodi di display — chiamarle senza "display."
+- TIMER: unsigned long per variabili millis() — MAI int (overflow a 32s)
+- dist(): NON esiste in Arduino — usare sqrt(pow(x2-x1,2)+pow(y2-y1,2))
+- setupPhysics(): NON inventare funzioni inesistenti — metti init direttamente in setup()
 """
 
 SYSTEM_PROMPT = """Sei un esperto programmatore Arduino.

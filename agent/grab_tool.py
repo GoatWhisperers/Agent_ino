@@ -125,14 +125,15 @@ def _capture_one(label: str = "") -> str | None:
         "--width",  str(WIDTH),
         "--height", str(HEIGHT),
         "-q", str(QUALITY),
-        # Bilanciamento bianco manuale: disabilita AWB, guadagni neutrali per luce LED/artificial
-        "--awbgains", "2.2,1.8",
-        # Contrasto aumentato: rende pixel OLED bianchi più netti sul nero
+        # Bilanciamento bianco manuale: neutrali per luce LED/artificiale
+        "--awbgains", "2.0,1.6",
+        # Contrasto: rende pixel OLED bianchi più netti sul nero
         "--contrast", "1.8",
         # Sharpness: migliora la definizione dei bordi pixel
         "--sharpness", "2.0",
-        # EV leggermente negativo: evita sovraesposizione OLED brillante
-        "--ev", "-0.5",
+        # EV molto negativo: isola pixel OLED dal rumore (ottimale anche al buio)
+        # Calibrato con occhio_bionico.calibrate() — preset 'bright' vince (density 8.9% vs 2.5%)
+        "--ev", "-1.5",
     ]
     try:
         r = subprocess.run(cmd, capture_output=True, timeout=10)

@@ -63,7 +63,7 @@ class _TokenBatcher:
 
 
 _batcher = _TokenBatcher()
-_DEFAULT_TIMEOUT = 3600  # 60 min — MI50 con thinking può impiegare molto
+_DEFAULT_TIMEOUT = 7200  # 120 min — MI50 con thinking a ~2 tok/sec: 8192 tok = ~68 min
 
 
 class MI50Client:
