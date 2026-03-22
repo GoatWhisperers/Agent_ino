@@ -152,7 +152,7 @@ def check_display_on() -> dict:
                 "error": "Pi non raggiungibile o webcam assente"}
 
     wr = _white_ratio(frames[0])
-    on = wr > 0.003
+    on = wr > 0.001  # soglia abbassata: 0.003→0.001 per display sparsi (Conway, snake piccolo)
 
     log(f"check_display_on: white_ratio={wr:.4f} → {'ON' if on else 'OFF'}")
     return {"on": on, "white_ratio": round(wr, 4), "preset_used": preset}

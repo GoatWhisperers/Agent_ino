@@ -138,15 +138,20 @@ def _parse_m40_response(raw: str) -> dict | None:
             return json.loads(m.group(1).strip())
         except (json.JSONDecodeError, ValueError):
             pass
-    # Cerca JSON libero (dal più lungo al più corto)
-    for m in reversed(list(re.finditer(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)?\}", raw, re.DOTALL))):
+    # Usa raw_decode per trovare JSON con "tool" o "done" (non sotto-oggetti vuoti)
+    decoder = json.JSONDecoder()
+    positions = [i for i, c in enumerate(raw) if c == "{"]
+    best = None
+    for pos in positions:
         try:
-            obj = json.loads(m.group(0))
-            if isinstance(obj, dict):
-                return obj
+            obj, _ = decoder.raw_decode(raw, pos)
+            if isinstance(obj, dict) and ("tool" in obj or "done" in obj):
+                # Preferisce oggetti con più chiavi (più completi)
+                if best is None or len(obj) > len(best):
+                    best = obj
         except (json.JSONDecodeError, ValueError):
             pass
-    return None
+    return best
 
 
 def _m40_step(messages: list[dict]) -> str:
