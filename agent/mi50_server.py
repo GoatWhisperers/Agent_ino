@@ -36,6 +36,7 @@ import re
 import torch
 from flask import Flask, request, jsonify, Response, stream_with_context
 from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer, TextIteratorStreamer
+from transformers import Qwen3_5ForConditionalGeneration
 
 MODEL_PATH = "/mnt/raid0/qwen3.5-9b"
 DEFAULT_PORT = 11434
@@ -65,7 +66,9 @@ def _load_model():
     torch.backends.cuda.enable_mem_efficient_sdp(True)
     torch.backends.cuda.enable_math_sdp(True)
     print("[MI50Server] Caricamento modello (bfloat16, sdpa) ...", flush=True)
-    _model = AutoModelForCausalLM.from_pretrained(
+    # Usa ForConditionalGeneration per abilitare la visione (pixel_values, image_grid_thw).
+    # Retrocompatibile con generazione solo testo — stessa interfaccia, più funzionalità.
+    _model = Qwen3_5ForConditionalGeneration.from_pretrained(
         MODEL_PATH,
         torch_dtype=torch.bfloat16,
         trust_remote_code=True,
@@ -235,21 +238,38 @@ def generate_with_images():
 
     proc = _get_processor()
 
-    images = []
+    pil_images = []
     for path in image_paths:
         try:
-            images.append(Image.open(path).convert("RGB"))
+            pil_images.append(Image.open(path).convert("RGB"))
         except Exception as e:
             print(f"[MI50Server] Impossibile caricare immagine {path}: {e}", flush=True)
 
+    # Qwen3-VL richiede che le immagini siano nel content come liste strutturate
+    # ({"type":"image","image":img}, {"type":"text","text":"..."})
+    # NON come messaggi plain text con le immagini passate separatamente.
+    if pil_images:
+        vision_messages = []
+        for msg in messages:
+            if msg["role"] == "user":
+                content = [{"type": "image", "image": img} for img in pil_images]
+                text_content = msg.get("content", "")
+                if text_content:
+                    content.append({"type": "text", "text": text_content})
+                vision_messages.append({"role": "user", "content": content})
+            else:
+                vision_messages.append(msg)
+    else:
+        vision_messages = messages
+
     with _generate_lock:
         text = proc.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True,
+            vision_messages, tokenize=False, add_generation_prompt=True,
             enable_thinking=False,
         )
         inputs = proc(
             text=text,
-            images=images if images else None,
+            images=pil_images if pil_images else None,
             return_tensors="pt",
             truncation=True,
             max_length=MAX_INPUT_TOKENS,
@@ -258,10 +278,10 @@ def generate_with_images():
         input_len = inputs["input_ids"].shape[1]
         print(f"[MI50Server] /generate_with_images input_tokens={input_len}", flush=True)
 
-        # Rimuovi kwargs che il modello non accetta (es. mm_token_type_ids da Qwen3VL processor)
-        import inspect
-        gen_params = set(inspect.signature(_model.generate).parameters.keys())
-        gen_inputs = {k: v for k, v in inputs.items() if k in gen_params or k == "input_ids"}
+        # Passa tutto al modello eccetto mm_token_type_ids (causa errori su Qwen3.5-VL).
+        # pixel_values e image_grid_thw sono necessari per la visione e vanno via **kwargs.
+        _VISION_BLACKLIST = {"mm_token_type_ids"}
+        gen_inputs = {k: v for k, v in inputs.items() if k not in _VISION_BLACKLIST}
 
         with torch.no_grad():
             output_ids = _model.generate(

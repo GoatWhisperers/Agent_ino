@@ -132,31 +132,74 @@ REGOLE:
 
 # ── Tool implementations ───────────────────────────────────────────────────
 
+_VISION_STAGING = "/mnt/raid0/observer_frames"
+
 def _tool_view_frame(frame_path: str) -> dict:
     """MI50 vision guarda il frame raw e descrive cosa vede."""
+    import shutil, os, time
     try:
         from agent.mi50_client import MI50Client
     except ImportError:
         return {"error": "MI50 non disponibile", "description": "", "confidence": "low"}
 
+    # MI50 gira in Docker — monta solo /mnt/raid0.
+    # Prepariamo il frame: crop sul display + boost contrasto → più facile per il modello.
+    os.makedirs(_VISION_STAGING, exist_ok=True)
+    staged = os.path.join(_VISION_STAGING, f"frame_{int(time.time()*1000)}.jpg")
+    try:
+        from PIL import Image as _PIL_Image, ImageEnhance as _PILEnh
+        import numpy as _np
+        from agent.occhio._common import THRESHOLD_OLED
+        _img = _PIL_Image.open(frame_path).convert("L")
+        _arr = _np.array(_img)
+        # Crop adattivo sulla bbox luminosa
+        _mask = _arr > THRESHOLD_OLED
+        _rows = _np.where(_mask.any(axis=1))[0]
+        _cols = _np.where(_mask.any(axis=0))[0]
+        if len(_rows) > 10 and len(_cols) > 10:
+            pad = 30
+            y0 = max(0, int(_rows.min()) - pad)
+            y1 = min(_arr.shape[0], int(_rows.max()) + pad)
+            x0 = max(0, int(_cols.min()) - pad)
+            x1 = min(_arr.shape[1], int(_cols.max()) + pad)
+            _img = _img.crop((x0, y0, x1, y1))
+        # Boost contrasto ×3 e converti RGB per MI50
+        _img = _PILEnh.Contrast(_img).enhance(3.0)
+        _img = _img.convert("RGB")
+        _img.save(staged, quality=95)
+    except Exception:
+        # fallback: copia il frame originale
+        try:
+            shutil.copy2(frame_path, staged)
+        except Exception as e:
+            return {"error": f"copy frame fallita: {e}", "description": "", "confidence": "low"}
+
     client = MI50Client()
-    system = (
-        "Sei un tecnico che analizza il display di un Arduino.\n"
-        "Guarda l'immagine e descrivi in modo conciso e tecnico:\n"
-        "1. Il display OLED è visibile? Dove si trova nell'immagine?\n"
-        "2. Cosa mostra il display? (forme, punti, testo, pattern, niente)\n"
-        "3. Quanti oggetti distinti vedi sul display?\n"
-        "4. C'è qualcosa che potrebbe essere un riflesso ambientale (non sul display)?\n"
-        "Rispondi in italiano, max 100 parole, sii preciso."
-    )
-    messages = [{"role": "user", "content": "Descrivi cosa vedi nell'immagine."}]
+    messages = [
+        {
+            "role": "user",
+            "content": (
+                "Questa è una foto di un display OLED 128×64 pixel collegato a un Arduino/ESP32, "
+                "ripresa da una webcam in ambiente buio. Il display OLED appare come una zona "
+                "rettangolare con pixel bianchi luminosi su sfondo nero. Le zone rosse o colorate "
+                "ai bordi sono riflessi ambientali, non il display.\n\n"
+                "Descrivi in italiano, max 3 frasi:\n"
+                "1. Quante forme luminose bianche distinte vedi (cerchi, punti, rettangoli)?\n"
+                "2. Le forme si muovono o sono statiche (confronta zone di sfocatura)?\n"
+                "3. C'è del testo leggibile sul display?\n"
+                "NON descrivere caratteri o simboli testuali per le forme geometriche."
+            ),
+        }
+    ]
 
     try:
-        raw = client.chat_with_image(
-            messages=messages, image_path=frame_path,
-            system=system, max_new_tokens=200, enable_thinking=False,
+        result = client.generate_with_images(
+            messages=messages,
+            image_paths=[staged],
+            max_new_tokens=200,
+            label="Observer→MI50vision",
         )
-        text = raw.strip() if isinstance(raw, str) else str(raw)
+        text = result.get("response", result.get("raw", "")).strip()
         return {
             "description": text,
             "objects_seen": text,
@@ -164,6 +207,11 @@ def _tool_view_frame(frame_path: str) -> dict:
         }
     except Exception as e:
         return {"error": str(e), "description": "", "confidence": "low"}
+    finally:
+        try:
+            os.remove(staged)
+        except OSError:
+            pass
 
 
 def _tool_run_analysis(frame_paths: list[str], threshold: int = 160, contrast: float = 1.0) -> dict:
@@ -334,7 +382,7 @@ def _parse_m40_response(raw: str) -> dict | None:
 def _m40_step(messages: list[dict]) -> str:
     """Chiama M40 per un singolo passo del mini-loop."""
     from agent.m40_client import M40Client
-    client = M40Client()
+    client = M40Client(timeout=300)  # 5 min — il system prompt è lungo
     result = client.generate(messages, max_tokens=600, label="M40→Observer")
     return result.get("response", result.get("raw", ""))
 
