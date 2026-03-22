@@ -122,6 +122,8 @@ bash agent/start_servers.sh   # avvia MI50 + M40 + controlla VRAM
 | Guard generate_all_functions in fasi avanzate | tool_agent.py | 1dce020 |
 | ingest_docs.py: +24 lessons da file lezione_*.md | knowledge/ | 1dce020 |
 | KB passages da 32 a **56 lessons** | ChromaDB+SQLite | 1dce020 |
+| _patch_code(): check void setup()/loop() post-patch | tool_agent.py | 5004cc6 |
+| +26 lessons da 8 docs non estratti → **82 lessons** | knowledge/ | 5004cc6 |
 
 ### Task Conway Game of Life v2: ✅ PARZIALE (success visivo, done:false da pipeline)
 
