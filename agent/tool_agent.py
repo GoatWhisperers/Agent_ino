@@ -1168,6 +1168,11 @@ def _evaluate_visual(args: dict, sess: _Session) -> dict:
             if sess.logger:
                 sess.logger.save_json(result, "result")
                 sess.logger.log(f"evaluate: serial-first success — {result['reason'][:80]}")
+            sess.eval_result = {
+                "success": True,
+                "reason": result["reason"],
+                "pipeline": "serial-first",
+            }
             sess.set_phase(_Session.PHASE_DONE)
             return {"success": True, "reason": result["reason"], "suggestions": ""}
 

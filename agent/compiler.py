@@ -154,7 +154,17 @@ def fix_m40_runtime_bugs(code: str) -> str:
             r"unsigned long \1 = 0;",
             code,
         )
-    # Bug 2: Serial.println/print usato ma Serial.begin() mancante in setup()
+    # Bug 2: fillRect/drawRect senza colore (5° parametro obbligatorio su Adafruit_GFX)
+    # → no matching function for call to 'Adafruit_SSD1306::fillRect(int, int, int, int)'
+    def _add_color_param(m):
+        return f"{m.group(1)}({m.group(2)}, SSD1306_WHITE)"
+    code = re.sub(
+        r"(display\.(fillRect|drawRect))\((\s*[^,)]+,\s*[^,)]+,\s*[^,)]+,\s*[^,)]+)\)",
+        lambda m: f"{m.group(1)}({m.group(3)}, SSD1306_WHITE)",
+        code,
+    )
+
+    # Bug 3: Serial.println/print usato ma Serial.begin() mancante in setup()
     # → serial output completamente silenzioso → serial-first evaluation fallisce
     if re.search(r"\bSerial\.(print|println|write)\b", code):
         if not re.search(r"\bSerial\.begin\s*\(", code):
