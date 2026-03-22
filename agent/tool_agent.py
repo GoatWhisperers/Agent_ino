@@ -136,9 +136,16 @@ FLUSSO (un passo alla volta, aspetta il risultato prima di procedere):
      patch_code args: {"errors": [...], "analysis": "descrizione fix"}
      M40 riscrive il codice correggendo gli errori — NON serve analyze_errors prima
   6. upload_and_read           ← se il messaggio dice "pronto per upload", chiama QUESTO
-  7. OBBLIGATORIO se il task usa OLED/display: grab_frames → evaluate_visual
-     ⚠ NON saltare evaluate_visual per task display — serve vedere il risultato con gli occhi
-     evaluate_visual args: {"expected_events": ["GEN:", "ALIVE:", "HIT", ecc.]} — se serial contiene questi → success immediato (serial-first)
+  7. OBBLIGATORIO se il task usa OLED/display: valutazione visiva.
+     OPZIONE A (semplice): grab_frames → evaluate_visual
+       evaluate_visual args: {"expected_events": ["GEN:", "ALIVE:", "HIT"]} → serial-first se eventi trovati
+     OPZIONE B (modulare, più precisa):
+       check_display_on  → verifica che il display mostri qualcosa (white_ratio > 0.003)
+       capture_frames    → {"n": 3, "interval_ms": 1000} — timing interno, usa preset calibrazione
+       detect_motion     → {"frame_paths": [...]} — c'è movimento?
+       count_objects     → {"frame_paths": [...]} — quanti oggetti e dove?
+       describe_scene    → {"frame_paths": [...], "goal": "cosa devo vedere"} — giudizio M40+MI50
+       read_text         → {"frame_paths": [...]} — se il display mostra testo/score (lento)
      ALTRIMENTI (solo LED, solo seriale, nessun display): evaluate_text
   8. save_to_kb
   9. {"done":true,...}
@@ -1165,6 +1172,100 @@ def _grab_frames(args: dict, sess: _Session) -> dict:
     }
 
 
+# ── Vision tools (agent/occhio) ───────────────────────────────────────────────
+
+def _calibrate_eye(args: dict, sess: _Session) -> dict:
+    from agent.occhio.calibrate import calibrate_eye
+    target = args.get("target", "oled")
+    _phase("CALIBRATE EYE", f"calibrazione camera per target={target}")
+    result = calibrate_eye(target=target)
+    return {
+        "best_preset": result.get("best_preset"),
+        "target":      result.get("target"),
+        "scores":      result.get("scores", {}),
+        "white_ratio_at_calibration": result.get("white_ratio_at_calibration"),
+        "calibrated_at": result.get("calibrated_at"),
+    }
+
+
+def _capture_frames_tool(args: dict, sess: _Session) -> dict:
+    from agent.occhio.capture import capture_frames
+    n           = int(args.get("n") or args.get("n_frames") or 3)
+    interval_ms = int(args.get("interval_ms") or args.get("interval") or 1000)
+    _phase("CAPTURE FRAMES", f"cattura {n} frame ogni {interval_ms}ms (timing interno)")
+    paths = capture_frames(n=n, interval_ms=interval_ms)
+    if paths:
+        sess.frame_paths = paths
+        for idx, p in enumerate(paths):
+            _frame(p, label="capture")
+            if sess.logger:
+                sess.logger.save_frame(p, idx=idx)
+    return {
+        "ok":          len(paths) > 0,
+        "frame_paths": paths,
+        "n_frames":    len(paths),
+    }
+
+
+def _check_display_on(args: dict, sess: _Session) -> dict:
+    from agent.occhio.capture import check_display_on
+    _phase("CHECK DISPLAY", "verifica rapida display ON/OFF")
+    return check_display_on()
+
+
+def _detect_motion(args: dict, sess: _Session) -> dict:
+    from agent.occhio.analyze import detect_motion
+    frame_paths = args.get("frame_paths", sess.frame_paths)
+    if not frame_paths:
+        return {"error": "Nessun frame. Chiama capture_frames prima."}
+    _phase("DETECT MOTION", f"analisi movimento su {len(frame_paths)} frame")
+    return detect_motion(frame_paths)
+
+
+def _count_objects(args: dict, sess: _Session) -> dict:
+    from agent.occhio.analyze import count_objects
+    frame_paths = args.get("frame_paths", sess.frame_paths)
+    if not frame_paths:
+        return {"error": "Nessun frame. Chiama capture_frames prima."}
+    _phase("COUNT OBJECTS", f"blob detection su {len(frame_paths)} frame")
+    return count_objects(frame_paths)
+
+
+def _read_text_tool(args: dict, sess: _Session) -> dict:
+    from agent.occhio.read import read_text
+    frame_paths = args.get("frame_paths", sess.frame_paths)
+    if not frame_paths:
+        return {"error": "Nessun frame. Chiama capture_frames prima."}
+    _phase("READ TEXT", "OCR via MI50-vision (context isolato)")
+    return read_text(frame_paths)
+
+
+def _describe_scene_tool(args: dict, sess: _Session) -> dict:
+    from agent.occhio.describe import describe_scene
+    frame_paths = args.get("frame_paths", sess.frame_paths)
+    goal = args.get("goal", sess.task[:200])
+    if not frame_paths:
+        return {"error": "Nessun frame. Chiama capture_frames prima."}
+    _phase("DESCRIBE SCENE", f"analisi + M40 VisualJudge + MI50 fallback")
+    result = describe_scene(frame_paths=frame_paths, goal=goal)
+    # Aggiorna eval_result se la scena descrive successo
+    if result.get("success_hint") and result.get("confidence", 0) >= 0.6:
+        sess.eval_result = {
+            "success":     True,
+            "reason":      result.get("reason", ""),
+            "pipeline":    f"describe_scene/{result.get('pipeline_used','?')}",
+            "suggestions": "",
+        }
+    return {
+        "success_hint":  result.get("success_hint"),
+        "confidence":    result.get("confidence"),
+        "reason":        result.get("reason"),
+        "pipeline_used": result.get("pipeline_used"),
+        "objects":       result.get("objects", {}),
+        "motion":        result.get("motion"),
+    }
+
+
 def _evaluate_visual(args: dict, sess: _Session) -> dict:
     from agent.evaluator import Evaluator
     frame_paths     = args.get("frame_paths", sess.frame_paths)
@@ -1319,6 +1420,14 @@ _REGISTRY = {
     "patch_code":             _patch_code,
     "upload_and_read":        _upload_and_read,
     "grab_frames":            _grab_frames,
+    # Vision tools (occhio bionico modulare)
+    "calibrate_eye":          _calibrate_eye,
+    "capture_frames":         _capture_frames_tool,
+    "check_display_on":       _check_display_on,
+    "detect_motion":          _detect_motion,
+    "count_objects":          _count_objects,
+    "read_text":              _read_text_tool,
+    "describe_scene":         _describe_scene_tool,
     "evaluate_visual":        _evaluate_visual,
     "evaluate_text":          _evaluate_text,
     "save_to_kb":             _save_to_kb,

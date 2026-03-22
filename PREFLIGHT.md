@@ -209,7 +209,32 @@ Già testato in STEP 4. Se grab_now funziona, evaluate_visual funzionerà.
 
 ---
 
-## STEP 8 — Verifica KB (knowledge base)
+## STEP 8 — Calibrazione occhio (calibrate_eye)
+
+Calibra i parametri della webcam per il setup fisico corrente (luce ambiente, distanza display).
+Va eseguito **una volta per sessione** o ogni volta che cambia il setup fisico.
+
+```bash
+python -c "
+import sys; sys.path.insert(0, '.')
+from agent.occhio import calibrate_eye
+result = calibrate_eye(target='oled')
+print('Preset scelto:', result.get('best_preset'))
+print('Score:', result.get('scores'))
+print('Calibrazione salvata in workspace/eye_calibration.json')
+"
+```
+
+**Atteso:** preset ottimale identificato (es. `bright`, `standard`, `oled_only`) e file salvato.
+
+Se la calibrazione fallisce (Pi non raggiungibile, webcam assente) → skip e usare preset default.
+
+Il preset salvato viene usato automaticamente da tutti i tool visivi successivi:
+`capture_frames`, `detect_motion`, `count_objects`, `describe_scene`.
+
+---
+
+## STEP 9 — Verifica KB (knowledge base)
 
 ```bash
 sqlite3 knowledge/arduino_agent.db \
@@ -232,7 +257,7 @@ for r in results:
 
 ---
 
-## STEP 9 — Preparare il task per il programmatore
+## STEP 10 — Preparare il task per il programmatore
 
 Solo dopo aver superato tutti gli step sopra, Claude prepara il task reale con il contesto completo.
 
@@ -302,6 +327,7 @@ Coordinate: origine (0,0) in alto a sinistra. Max 128x64 pixel.
 | Librerie locali | `check_libraries(...)` | tutte presenti |
 | Librerie Pi | `check_pio_libraries(...)` | tutte presenti |
 | Memory server | `curl http://127.0.0.1:7701/health` | `{"status":"ok"}` |
+| Calibrazione occhio | `calibrate()` | preset salvato in eye_calibration.json |
 | KB esempio | `qe.search(task)` | snippet simile (se esiste) |
 
 **Solo se tutti i check sono verdi → lanciare il programmatore.**
