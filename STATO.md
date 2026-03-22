@@ -1,6 +1,6 @@
 # STATO — Programmatore di Arduini
 
-> Ultima modifica: 2026-03-22 (mattina — Conway v3 completata, 6 nuovi fix sistemici)
+> Ultima modifica: 2026-03-22 (pomeriggio — ricerca KB per funzione, 56 lessons, guard fasi avanzate)
 
 ---
 
@@ -112,6 +112,16 @@ bash agent/start_servers.sh   # avvia MI50 + M40 + controlla VRAM
 | anchor_done con JSON esplicito success=true/false | tool_agent.py | 7eab4a2 |
 | _fix_setPixel_to_drawPixel in compiler.py | compiler.py | 663622f |
 | NAMING/DISPLAY rule in SYSTEM_FUNCTION | generator.py | 663622f |
+
+### Fix pomeriggio (sessione con Lele):
+| Fix | File | Commit |
+|-----|------|--------|
+| Ricerca KB per-funzione in generate_all_functions | tool_agent.py | 1dce020 |
+| generate_function() accetta function_lessons | generator.py | 1dce020 |
+| Guard generate_globals in fasi avanzate | tool_agent.py | 1dce020 |
+| Guard generate_all_functions in fasi avanzate | tool_agent.py | 1dce020 |
+| ingest_docs.py: +24 lessons da file lezione_*.md | knowledge/ | 1dce020 |
+| KB passages da 32 a **56 lessons** | ChromaDB+SQLite | 1dce020 |
 
 ### Task Conway Game of Life v2: ✅ PARZIALE (success visivo, done:false da pipeline)
 
@@ -227,23 +237,19 @@ HUNT:2 DIST:5  FLEE:8    → TUTTE le 8 prede in fuga!
 ### TODO per prossima sessione
 
 #### 🔴 Priorità alta
-1. **Predatore v2 fix**: aggiungere queste lessons alla KB prima di rilanciarla:
-   - Timer respawn: usare `unsigned long spawnTime = millis()` non conteggio iterazioni
-   - FLEE count: contare prede a distanza < FLEE_RADIUS, non `prey[i].alive`
-   - `unsigned long lastSerialTime = 0` (non `int`)
-2. **Lezione predatore v2** da completare: `docs/lezione_predatore_v2.md` (abbozzato ma incompleto)
-3. **Verificare M40** al preflight — ora usa Gemma 3 12B, verificare che funzioni correttamente
+1. **Prossimo task**: Snake Game su OLED SSD1306 — testa la ricerca KB per-funzione end-to-end
+2. **Resume fix completo**: quando si fa resume con ctx vuoto in fase UPLOADING, MI50 chiama plan_task → synthetic turn injection non ancora implementato (bug #30 parziale)
+3. **Patcher M40 loop() deletion**: dopo patch multi-round verificare che setup() e loop() esistano ancora (lesson in KB ma check non in compiler.py)
 
 #### 🟡 Priorità media
-4. **Fix MI50 ctx resume**: quando si fa resume con ctx vuoto, MI50 riparte da planning — aggiungere prompt esplicito nello step "uploading" che dice "chiama SOLO upload_and_read"
-5. **Multi-predatore** — 2 predatori che cacciano cooperando (seek + avoid altri predatori)
-6. **Conway's Game of Life** — cambio radicale: automa cellulare, zero fisica, zero steering
-7. **eth0 permanente sul Pi** — netplan config
+4. **Multi-predatore** — 2 predatori cooperanti (seek + avoid altri predatori)
+5. **eth0 permanente sul Pi** — netplan config
+6. **Conway: piano successl**: Conway v3 ha avuto serial-first success → fare Conway v4 con color palette o regole personalizzate
 
 #### 🟢 Priorità bassa
-8. **Blob detection 2D** in evaluator: connected components invece di scan 1D
-9. **Skill library** — funzioni Arduino testate e riusabili
-10. **Doc ingestion** — datasheet in ChromaDB
+7. **Blob detection 2D** in evaluator: connected components invece di scan 1D
+8. **Skill library** — funzioni Arduino testate e riusabili
+9. **Doc ingestion** — datasheet in ChromaDB
 
 ---
 
