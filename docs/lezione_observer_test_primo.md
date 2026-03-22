@@ -283,3 +283,84 @@ M40 ha ragionato correttamente con i dati disponibili:
 *Sketch: Conway Game of Life v3 (code_v2_patch1.ino, run 20260322_034956)*
 *Serial al momento dei test: Generation:0, Alive:299, Stable:0*
 *4 run totali: test#1 (26.9s), test#2 (fail parser), test#3 (fail parser v2), test#4 (80.3s ✅)*
+
+---
+
+## Test #5 — Sketch "schermo pieno" (bordo+croce+angoli)
+
+### Sketch caricato
+
+```cpp
+// Bordo esterno pieno 128×64
+display.fillRect(0, 0, 128, 64, SSD1306_WHITE);
+// Rettangolo nero interno (crea bordo spesso)
+display.fillRect(4, 4, 120, 56, SSD1306_BLACK);
+// Croce centrale
+display.fillRect(0, 28, 128, 8, SSD1306_WHITE);
+display.fillRect(56, 0, 16, 64, SSD1306_WHITE);
+// Quattro angoli pieni 20×20
+display.fillRect(0, 0, 20, 20, SSD1306_WHITE);
+display.fillRect(108, 0, 20, 20, SSD1306_WHITE);
+display.fillRect(0, 44, 20, 20, SSD1306_WHITE);
+display.fillRect(108, 44, 20, 20, SSD1306_WHITE);
+```
+
+### check_display_on
+
+```
+white_ratio = 7.71%  →  ON  ✅
+(era 0.11% con Conway — 70× più luminoso)
+```
+
+### Frame catturato — annotato
+
+![schermo pieno annotato](observer_test_2026-03-22/schermo_pieno_annotated.jpg)
+
+- **Verde**: bounding box OLED reale nel frame (y=27-245, x=241-557, 218×316px)
+- **Giallo**: crop analisi attuale di `analyze.py` (centro 380×288 del frame 640×480)
+- Il crop taglia via la parte **superiore** del display (y=27-96)
+
+### Crop diretto sull'OLED
+
+![schermo pieno crop](observer_test_2026-03-22/schermo_pieno_display_crop.jpg)
+
+Pattern perfettamente visibile: bordo bianco, croce centrale, quattro riquadri neri.
+Il display è **inclinato ~5°** rispetto all'asse della webcam.
+
+### Risultato observer (5 passi, 90.6s)
+
+```json
+{
+  "display_on": true,
+  "objects_total": 1,
+  "segments": [{"cx": 375, "cy": 19, "area": 182}],
+  "motion_detected": false,
+  "success_hint": false,
+  "reason": "La presenza di un artefatto (blocco) e la mancanza di descrizione precisa indicano goal non completamente soddisfatto."
+}
+```
+
+**Nota**: `success_hint: false` è conservativo ma ragionevole — il display mostra UN blob grande (il rettangolo pieno) che `count_objects` classifica come "block" (>200px), quindi non contato in `objects_total`. M40 non ha abbastanza granularità per distinguere i 4 riquadri.
+
+### Bug identificato: crop centrato non coglie display in alto a sinistra
+
+Il display OLED è posizionato in alto a sinistra nel frame webcam (x=241-557, y=27-245).
+Il crop di `_extract_blobs()` in `analyze.py` prende il **centro** del frame (x=130-510, y=96-384) — taglia via y=27-96, ovvero la parte superiore del display.
+
+**Fix proposto**: crop adattivo basato sul bounding box dei pixel luminosi, invece di prendere sempre il centro:
+```python
+# Invece di: img.crop((mx, my, mx+380, my+288))  # centro fisso
+# Fare: trova bbox di pixel > threshold, croppa intorno a quello
+```
+
+Oppure — più semplice — rimuovere il crop (usare il frame intero) ora che la pipeline pixel è robusta.
+
+### Lezioni apprese da questo test
+
+| Lezione | Dettaglio |
+|---------|-----------|
+| **white_ratio è proporzionale al fill OLED** | Sketch che riempie >50% dello schermo → wr=7.7%, facilmente rilevabile |
+| **Conway sparse non basta** | 3.6% fill OLED → wr≈0.1%, sotto soglia anche con webcam allineata |
+| **Per test webcam: usare sketch denso** | Bordo pieno, testo grande, scacchiera → wr>3% garantito |
+| **Crop centrato non è universale** | Se OLED è fuori centro nel frame, il crop taglia il display |
+| **Il display è visibile e riconoscibile** | Observer funziona — il framework è corretto |
