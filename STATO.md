@@ -1,6 +1,6 @@
 # STATO — Programmatore di Arduini
 
-> Ultima modifica: 2026-03-22 (notte — predatore v3 + Conway v1 analisi + Conway v2 in corso)
+> Ultima modifica: 2026-03-22 (mattina — Conway v3 completata, 6 nuovi fix sistemici)
 
 ---
 
@@ -82,6 +82,36 @@ bash agent/start_servers.sh   # avvia MI50 + M40 + controlla VRAM
 | `_anchor_compiling` senza lessons KB | KB lessons iniettate nel compiling anchor |
 
 **Lezione**: `docs/lezione_conway_v1.md` ✅
+
+### Task Conway Game of Life v3: ✅ PARZIALE (serial-first success, done:false da bug pipeline)
+
+**Run dir**: `logs/runs/20260322_034956_Conway_s_Game_of_Life_su_OLED_SSD1306_12`
+
+**Risultato**: compile OK (#2, dopo 1 patch). Upload OK. Serial: `Generation:0 Alive:463 Stable:0`. evaluate_visual: success=True [serial-first]. RUN END: FAILED (done JSON senza `"success":true` — bug appena fixato, commit `7eab4a2`).
+
+**Bug M40 fixati rispetto v2**: delay(16) funziona (solo 3 righe serial in 10s), firma uint8_t correta.
+
+**Bug M40 nuovi in v3**:
+| Bug | Fix sistemico |
+|-----|--------------|
+| `bool isStable` come variabile E funzione stesso nome | NAMING rule aggiunta a SYSTEM_FUNCTION |
+| `display.setPixel()` (non esiste) invece di `drawPixel()` | `_fix_setPixel_to_drawPixel()` in compiler.py |
+
+**Autonomia**: ~90% (solo 1 patch compile autonoma)
+
+**Lezione**: `docs/lezione_conway_v3.md` ✅
+
+### Fix sistemici fatti questa mattina (sessione autonoma):
+| Fix | File | Commit |
+|-----|------|--------|
+| Loop detection (stesso tool ×3 → hint) | tool_agent.py | 9aa4aab |
+| plan_task guard fasi avanzate | tool_agent.py | 9aa4aab |
+| Checkpoint write atomico | tool_agent.py | 9aa4aab |
+| learner iterations usa logger._compile_errors | tool_agent.py | 9aa4aab |
+| Double index_lesson rimosso dal learner | learner.py | 9aa4aab |
+| anchor_done con JSON esplicito success=true/false | tool_agent.py | 7eab4a2 |
+| _fix_setPixel_to_drawPixel in compiler.py | compiler.py | 663622f |
+| NAMING/DISPLAY rule in SYSTEM_FUNCTION | generator.py | 663622f |
 
 ### Task Conway Game of Life v2: ✅ PARZIALE (success visivo, done:false da pipeline)
 
