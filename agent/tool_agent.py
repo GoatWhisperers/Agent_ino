@@ -215,6 +215,19 @@ class RunLogger:
 
 # ── Stato sessione ────────────────────────────────────────────────────────────
 
+def _parse_expected_events(task: str) -> list:
+    """Estrae expected_events dalla stringa del task (es. expected_events=["BOUNCE","HIT"]).
+    Usati come fallback nel serial-first se MI50 passa eventi sbagliati a evaluate_visual."""
+    import re, ast
+    m = re.search(r'expected_events\s*=\s*(\[.*?\])', task)
+    if m:
+        try:
+            return ast.literal_eval(m.group(1))
+        except Exception:
+            pass
+    return []
+
+
 class _Session:
     # Fasi del flusso — determinano quale anchor viene costruito
     PHASE_PLANNING   = "planning"    # plan_task, plan_functions
@@ -239,6 +252,7 @@ class _Session:
         self.phase = self.PHASE_PLANNING
         self.plan_result = {}       # output di plan_task, usato nell'anchor generating
         self.eval_result = {}       # risultato evaluate_visual/evaluate_text — usato in _anchor_done
+        self.expected_events: list  = _parse_expected_events(task)  # da task string, fallback serial-first
         self.logger: RunLogger = None  # impostato da run()
 
     def set_phase(self, phase: str):
@@ -281,6 +295,7 @@ class _Session:
             "phase":            self.phase,
             "plan_result":      self.plan_result,
             "eval_result":      self.eval_result,
+            "expected_events":  self.expected_events,
             "nb":               nb_data,
         }
 
@@ -298,6 +313,7 @@ class _Session:
         s.phase            = d.get("phase", cls.PHASE_PLANNING)
         s.plan_result      = d.get("plan_result", {})
         s.eval_result      = d.get("eval_result", {})
+        s.expected_events  = d.get("expected_events", _parse_expected_events(s.task))
         # Ricrea Notebook dal checkpoint se salvato
         nb_data = d.get("nb")
         if nb_data:
@@ -464,9 +480,12 @@ class _ContextManager:
 
     def _anchor_evaluating(self, sess: _Session) -> str:
         """Fase evaluating: task + output seriale + frame. Niente codice."""
+        ev_hint = ""
+        if sess.expected_events:
+            ev_hint = f"\nEXPECTED_EVENTS (dal task): {sess.expected_events} — usa questi in evaluate_visual!"
         parts = [
             f"TASK: {sess.task[:80]}\nBOARD: {sess.fqbn}\n"
-            f"STATO: codice caricato sull'ESP32, serial e frame disponibili.\n"
+            f"STATO: codice caricato sull'ESP32, serial e frame disponibili.{ev_hint}\n"
             f"ISTRUZIONE: chiama evaluate_visual o evaluate_text per valutare il risultato. "
             f"NON chiamare plan_task, generate_globals o generate_all_functions."
         ]
@@ -1146,7 +1165,10 @@ def _evaluate_visual(args: dict, sess: _Session) -> dict:
     from agent.evaluator import Evaluator
     frame_paths     = args.get("frame_paths", sess.frame_paths)
     serial          = args.get("serial_output", sess.serial)
-    expected_events = args.get("expected_events", [])
+    # Unisce expected_events da MI50 con quelli estratti dal task (fallback affidabile)
+    mi50_events = args.get("expected_events", [])
+    task_events = sess.expected_events or []
+    expected_events = list(dict.fromkeys(mi50_events + task_events))  # dedup, mantieni ordine
 
     if not frame_paths:
         return {"error": "Nessun frame. Chiama grab_frames prima."}
