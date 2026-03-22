@@ -346,6 +346,11 @@ def _fix_drawCircle_float(code: str) -> str:
     return code
 
 
+def _fix_setPixel_to_drawPixel(code: str) -> str:
+    """Fix: M40 usa .setPixel() che non esiste su Adafruit_SSD1306 — il metodo corretto è drawPixel()."""
+    return re.sub(r"\bdisplay\.setPixel\s*\(", "display.drawPixel(", code)
+
+
 def _fix_uint8_grid_pointer(code: str) -> str:
     """
     Fix: M40 scrive uint8_t* grid come parametro ma poi usa grid[y][x] (2D array access).
@@ -380,6 +385,7 @@ _API_ERROR_FIXES = [
     ("no matching function for call to 'Adafruit_SSD1306::drawCircle", _fix_drawCircle_float),
     ("no matching function for call to 'Adafruit_SSD1306::fillCircle", _fix_drawCircle_float),
     ("cannot convert 'uint8_t (*)[",                                   _fix_uint8_grid_pointer),
+    ("has no member named 'setPixel'",                                 _fix_setPixel_to_drawPixel),
 ]
 
 

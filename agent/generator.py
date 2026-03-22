@@ -95,6 +95,9 @@ REGOLE CODICE:
 - CONWAY/COMPUTE: iterare su for(y) for(x) con x in 0..GRID_W, non su for(bitCol) for(x) — gridX = y*BITMAP_COLS+bitCol è SBAGLIATO
 - CONWAY/LOOP: SEMPRE includere delay(16) in loop() dopo drawGrid() + gestire stable→reinit: if(isStable){initGrid();randomizeGrid();currentGen=0;}
   Il loop() senza delay gira troppo veloce → millis() non avanza → serial timer non funziona correttamente
+- NAMING: NON usare lo stesso nome per variabile globale E funzione — es. `bool isStable=false` + `bool isStable(){}` = ERRORE
+  Usa nomi diversi: variabile `isStableState`, funzione `checkStability()` — oppure usa solo la funzione senza variabile globale
+- DISPLAY: usare display.drawPixel(x,y,SSD1306_WHITE) — NON display.setPixel() che NON esiste su Adafruit_SSD1306
 """
 
 SYSTEM_PROMPT = """Sei un esperto programmatore Arduino.
