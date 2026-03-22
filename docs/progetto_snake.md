@@ -65,6 +65,19 @@ Generazioni successive migliorano il punteggio medio. Tutto in tempo reale su ES
 **Note**: questo è il task più ambizioso del progetto. Un agente che impara su hardware embedded
 con 520KB di RAM. Pochissimi esempi simili nel mondo.
 
+### Livello 8 — Snake sinuoso (traiettorie a S)
+**Task**: il serpente non si muove più a griglia cardinale ma descrive traiettorie curve,
+come un vero serpente che striscia. Movimento basato su angolo + velocità angolare:
+- `angle` (float, radianti) aggiornato ogni frame con piccola variazione random
+- `vx = speed * cos(angle)`, `vy = speed * sin(angle)`
+- Curva verso il cibo (steering): ruota angle verso la direzione del cibo con peso `k`
+- Evita i muri: se prossimo step fuori bordo → svolta opposta
+- Self-collision con corpo (distanza ≤ 2) → GAMEOVER
+- Il corpo segue la testa con shift array come sempre
+**Serial**: `EAT`, `SCORE:N`, `GAMEOVER`
+**Obiettivo KB**: movimento angolare su OLED, steering verso target, traiettorie fluide.
+**Rischio stimato**: alto — fisica angolare nuova per M40, ma L5-L7 preparano la KB.
+
 ### Livello 6 — Score su display + velocità crescente
 **Task**: SCORE nell'angolo in alto (testo 6px). Velocità aumenta ogni 5 punti
 (delay: 200ms → 100ms → 50ms minimo).
@@ -161,27 +174,102 @@ La collisione cibo è implementata correttamente — serve più tempo di osserva
 
 ---
 
-### Livello 4 — RISULTATO: ...
+### Livello 4 — RISULTATO: ✅ SUCCESSO (0 patch, guardie esplicite nel task)
 
-*(da completare)*
+**Run dir**: `logs/runs/20260322_133354_Serpente_su_OLED_SSD1306_128x64_ESP32_C`
+**Patch**: 0
+**Bug M40**: nessuno — le guardie esplicite nel task hanno funzionato
+**Serial**: `GAMEOVER × 3`, `SCORE:0` in 10s — serial-first success ✅
+**Autonomia**: 100%
+
+**Cosa ha funzionato**: inserire esplicitamente nel task le guardie anti-bug di L3
+(`positions[0]` come testa, `randomFreePos` con for loop) ha prevenuto la ripetizione.
+M40 ha generato self-collision (loop i=2..length-1) e reinit completo correttamente.
+
+**Limite osservato**: con vx=2, vy=1 fisso il serpente sbatte subito contro i muri →
+GAMEOVER ogni 2-3 secondi, score sempre 0. La self-collision non si vede mai.
+**Conclusione**: L4 non è interessante da sola. La self-collision ha senso solo
+se il serpente sopravvive abbastanza da crescere → serve navigazione autonoma (L5).
 
 ---
 
-### Livello 5 — RISULTATO: ...
+### Livello 5 — RISULTATO: ⚠️ FALSO POSITIVO (serial-first ingannato)
 
-*(da completare)*
+**Run dir**: `logs/runs/20260322_150738_Serpente_su_OLED_SSD1306_128x64_ESP32`
+**Patch**: 0 (ma codice rotto)
+**Serial**: `EAT × 7677` in 10s — serial-first dice ✅, ma il gioco è rotto
+
+**Bug M40 trovati (analisi post-run del codice)**:
+| Bug | Descrizione |
+|-----|-------------|
+| Shift corpo dopo aggiornamento testa | `positions[0]` aggiornato PRIMA dello shift → tutti i segmenti copiano la nuova testa → corpo si sovrappone alla testa, serpente visivamente un pixel |
+| `randomFreePos` spawna su metà display | `random(0, SCREEN_W/2)` → cibo solo nel quadrante in alto a sinistra |
+| `updateAutonomousDirection` manca direzione su (3) | non aggiunge mai dir=3 alla lista validDirections |
+
+**Perché EAT × 7677**: corpo sovrapposto alla testa + cibo concentrato in 32×16 pixel →
+il "serpente" (che è un singolo pixel) rimbalza nell'area del cibo continuamente.
+
+**Lezione**: il serial-first non può vedere bug di logica visiva. EAT nel seriale ≠ gioco funzionante.
 
 ---
 
-### Livello 6 — RISULTATO: ...
+### Livello 6 — RISULTATO: ⚠️ FALSO POSITIVO (GAMEOVER per bug, non per gioco)
 
-*(da completare)*
+**Run dir**: `logs/runs/20260322_174152_Serpente_su_OLED_SSD1306_128x64_ESP32`
+**Patch**: 0 (ma codice rotto)
+**Serial**: `GAMEOVER × N`, `SCORE:0` — serial-first dice ✅ (GAMEOVER in expected_events)
+
+**Bug M40 trovati (analisi post-run del codice)**:
+| Bug | Descrizione |
+|-----|-------------|
+| Circular buffer + shift lineare mescolati | `headIdx` avanza ogni frame ma lo shift è lineare → al frame 3 la "testa" punta a un segmento del corpo → GAMEOVER immediato |
+| `score%5==0` scatta a score=0 | `0%5==0` → velocità scala a 50ms prima di aver mangiato nulla |
+| `SSD1306_RED`/`SSD1306_GREEN` | non esistono su display monocromatico |
+| `changeDirection()` chiamata due volte per frame | da `updatePhysics()` e da `loop()` |
+
+**Lezione**: GAMEOVER nel seriale ≠ game over per self-collision. Il sistema non distingue
+un GAMEOVER corretto da uno causato da un bug.
 
 ---
 
 ## Lessons accumulate (aggiornato dinamicamente)
 
 *(popolato dopo ogni run)*
+
+---
+
+## Osservazioni finali
+
+### Il tetto del sistema — identificato con il progetto Snake
+
+Il progetto Snake ha avuto un valore preciso: ha trovato il limite di complessità oltre il quale
+M40 (Gemma 3 12B Q4_K_M) non è affidabile senza supervisione umana stretta.
+
+**Sotto il tetto (funziona bene)**:
+- Task con 1-2 sistemi indipendenti: rimbalzo, corpo che segue, collisione singola
+- Fisica continua: palline, boids, Conway
+- Funzioni brevi con logica locale e poco stato condiviso
+- L1, L2, L4 (con guardie esplicite) → 0 patch, 100% autonomia
+
+**Sopra il tetto (si rompe)**:
+- 3+ sistemi che interagiscono con stato condiviso: body tracking + collision + navigation + score
+- M40 genera ogni funzione isolatamente e sbaglia le interazioni tra funzioni
+- L5, L6: compilazione OK, runtime rotto in modo non rilevabile dal serial-first
+
+**Perché succede**:
+M40 genera funzione per funzione in parallelo (ThreadPoolExecutor). Non ha visione globale
+dello stato mentre scrive. Per la fisica delle palline ogni funzione è quasi indipendente.
+Per uno snake completo serve coerenza tra shift del corpo, headIdx, collision check, reset —
+M40 non mantiene quella coerenza.
+
+**Cosa servirebbe per andare oltre**:
+- Modello più grande (70B+) o fine-tuned su codice embedded
+- Pseudocodice quasi completo nel task (ma a quel punto scrivi tu)
+- Loop di verifica runtime, non solo compilazione
+
+**Il sistema rimane valido** per il suo dominio reale: task di fisica visiva con 1-2 meccanismi,
+dove la compilazione + serial output sono verificatori sufficienti. Muretto, boids, Conway,
+pixel rimbalzante — questi funzionano. Snake completo con navigazione autonoma no.
 
 ---
 
