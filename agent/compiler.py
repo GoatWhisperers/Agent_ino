@@ -176,6 +176,12 @@ def fix_known_includes(code: str) -> str:
     code = re.sub(r"Adafruit_GFX\s*::\s*WHITE",   "SSD1306_WHITE",   code)
     code = re.sub(r"Adafruit_GFX\s*::\s*BLACK",   "SSD1306_BLACK",   code)
     code = re.sub(r"Adafruit_GFX\s*::\s*INVERSE", "SSD1306_INVERSE", code)
+    # Proactive M40 pattern fixes (applicati SEMPRE, non solo su errori compilazione):
+    # 1. drawCircle/fillCircle con float — aggiunge cast (int) e rimuove 5° argomento
+    code = _fix_drawCircle_float(code)
+    # 2. dist() chiamato senza essere definito — aggiunge helper globale
+    if re.search(r"\bdist\s*\(", code) and "float dist(" not in code:
+        code = _fix_dist_function(code)
     return code
 
 
