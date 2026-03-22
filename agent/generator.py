@@ -233,13 +233,21 @@ class Generator:
         code = self._extract_code(result["response"] or result["raw"])
         return {"code": code, "thinking": result["thinking"]}
 
-    def generate_function(self, nome: str, nb, kb_example: str = "") -> dict:
+    def generate_function(self, nome: str, nb, kb_example: str = "",
+                          function_lessons: str = "") -> dict:
         """
         Genera una singola funzione Arduino.
-        kb_example: snippet funzionante dalla KB — aiuta M40 a usare le API corrette.
+        kb_example      : snippet funzionante dalla KB — aiuta M40 a usare le API corrette.
+        function_lessons: lessons KB specifiche per questa funzione (es. anti-pattern noti).
         Ritorna: {"code": str, "thinking": str}
         """
         user_content = nb.context_for_function(nome)
+        if function_lessons:
+            user_content += (
+                "\n\n=== LEZIONI KB — ANTI-PATTERN DA EVITARE IN QUESTA FUNZIONE ===\n"
+                + function_lessons +
+                "\n======================================================================="
+            )
         if kb_example:
             # Mostra solo le prime 400 chars dell'esempio — basta per le API
             user_content += (

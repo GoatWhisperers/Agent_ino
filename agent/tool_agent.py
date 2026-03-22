@@ -746,6 +746,16 @@ def _auto_search_kb(sess: _Session) -> None:
 
 def _generate_globals(args: dict, sess: _Session) -> dict:
     from agent.generator import Generator
+    # Guard: se il codice è già compilato o caricato, non rigenerare i globals
+    if sess.phase not in (_Session.PHASE_PLANNING, _Session.PHASE_GENERATING):
+        if sess.code:
+            return {
+                "skipped": True,
+                "reason": (
+                    f"Il codice è già stato generato (fase: {sess.phase}). "
+                    "NON rigenerare i globals. Prosegui con il passo appropriato per la fase corrente."
+                ),
+            }
     if sess.nb is None:
         return {"error": "Chiama plan_functions prima di generate_globals"}
     _auto_search_kb(sess)
@@ -763,6 +773,18 @@ def _generate_all_functions(args: dict, sess: _Session) -> dict:
     from agent.generator import Generator
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    # Guard: se il codice è già compilato, non rigenerare le funzioni
+    if sess.phase not in (_Session.PHASE_PLANNING, _Session.PHASE_GENERATING):
+        if sess.code:
+            return {
+                "skipped": True,
+                "reason": (
+                    f"Le funzioni sono già state generate e il codice è pronto (fase: {sess.phase}). "
+                    "NON rigenerare. Prosegui con il passo appropriato per la fase corrente."
+                ),
+                "total_lines": len(sess.code.splitlines()),
+            }
+
     if sess.nb is None:
         return {"error": "Chiama plan_functions prima di generate_all_functions"}
 
@@ -776,9 +798,43 @@ def _generate_all_functions(args: dict, sess: _Session) -> dict:
     results = {}
     errors = {}
 
+    # Pre-carica lessons KB specifiche per ogni funzione (ricerca function-level)
+    # Query = task + nome funzione → trova anti-pattern noti per quella funzione specifica
+    func_lessons_map: dict[str, str] = {}
+    try:
+        from knowledge.semantic import search_lessons as sem_lessons
+        from knowledge.db import search_lessons as db_lessons
+        for nome in funzioni:
+            query = f"{sess.task[:60]} {nome}"
+            lessons = []
+            try:
+                lessons = sem_lessons(query, n=4)
+            except Exception:
+                pass
+            if not lessons:
+                lessons = db_lessons(query, limit=4)
+            if lessons:
+                # Filtra lessons già viste nel lessons_context (evita ridondanza)
+                seen = set(sess.lessons_context.split("\n")) if sess.lessons_context else set()
+                new_lessons = [l for l in lessons if l.get("lesson", "") not in seen][:3]
+                if new_lessons:
+                    func_lessons_map[nome] = "\n".join(
+                        f"- {l.get('lesson', '')}" for l in new_lessons
+                    )
+                    if sess.logger:
+                        sess.logger.log(
+                            f"[KB/{nome}] {len(new_lessons)} lessons funzione-specifiche"
+                        )
+    except Exception as e:
+        if sess.logger:
+            sess.logger.log(f"[KB func-level search] errore: {e}")
+
     def gen_one(nome):
         gen = Generator()
-        return nome, gen.generate_function(nome=nome, nb=sess.nb, kb_example=sess.kb_example)
+        return nome, gen.generate_function(
+            nome=nome, nb=sess.nb, kb_example=sess.kb_example,
+            function_lessons=func_lessons_map.get(nome, ""),
+        )
 
     with ThreadPoolExecutor(max_workers=min(len(funzioni), 4)) as pool:
         futures = {pool.submit(gen_one, nome): nome for nome in funzioni}
