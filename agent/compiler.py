@@ -154,6 +154,17 @@ def fix_m40_runtime_bugs(code: str) -> str:
             r"unsigned long \1 = 0;",
             code,
         )
+    # Bug 2: Serial.println/print usato ma Serial.begin() mancante in setup()
+    # → serial output completamente silenzioso → serial-first evaluation fallisce
+    if re.search(r"\bSerial\.(print|println|write)\b", code):
+        if not re.search(r"\bSerial\.begin\s*\(", code):
+            # Inietta Serial.begin(115200) all'inizio di setup()
+            code = re.sub(
+                r"(void\s+setup\s*\(\s*\)\s*\{)",
+                r"\1\n  Serial.begin(115200);",
+                code,
+                count=1,
+            )
     return code
 
 
