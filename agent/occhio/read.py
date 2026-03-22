@@ -80,19 +80,39 @@ def _mi50_read_text(img_path: str) -> dict:
         "Se non c'è testo leggibile: {\"text\": \"\", \"confidence\": \"high\"}"
     )
 
+    # Staging: MI50 gira in Docker, vede solo /mnt/raid0
+    import shutil, os, time as _time
+    _staging_dir = "/mnt/raid0/observer_frames"
+    os.makedirs(_staging_dir, exist_ok=True)
+    staged = os.path.join(_staging_dir, f"read_{int(_time.time()*1000)}.jpg")
+    try:
+        shutil.copy2(img_path, staged)
+    except Exception as e:
+        return {"text_found": False, "text": "", "confidence": "low",
+                "error": f"copy frame fallita: {e}"}
+
     messages = [
-        {"role": "user", "content": "Leggi il testo visibile su questo display."}
+        {"role": "user", "content": (
+            system + "\n\nLeggi il testo visibile su questo display."
+        )}
     ]
 
     try:
-        result = client.chat_with_image(
+        result = client.generate_with_images(
             messages=messages,
-            image_path=img_path,
-            system=system,
+            image_paths=[staged],
             max_new_tokens=100,
-            enable_thinking=False,
+            label="Observer→MI50vision→OCR",
         )
-        text = result.strip() if isinstance(result, str) else ""
+        text = result.get("response", result.get("raw", "")).strip()
+    except Exception as e:
+        return {"text_found": False, "text": "", "confidence": "low",
+                "error": f"MI50 vision fallita: {e}"}
+    finally:
+        try:
+            os.remove(staged)
+        except OSError:
+            pass
     except Exception as e:
         return {"text_found": False, "text": "", "confidence": "low",
                 "error": f"MI50 vision fallita: {e}"}
