@@ -113,9 +113,6 @@ def _mi50_read_text(img_path: str) -> dict:
             os.remove(staged)
         except OSError:
             pass
-    except Exception as e:
-        return {"text_found": False, "text": "", "confidence": "low",
-                "error": f"MI50 vision fallita: {e}"}
 
     # Parse JSON
     try:

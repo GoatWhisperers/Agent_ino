@@ -375,93 +375,134 @@ class Evaluator:
         expected_events: list[str] = None,
     ) -> dict:
         """
-        Pipeline NUOVA: analisi pixel deterministica + M40 giudice testuale.
+        Pipeline visiva principale: serial-first → observer (M40+MI50 vision) → M40 judge.
 
         Flusso:
-          1. Genera 3 versioni immagine per ogni frame (crop, threshold, edge)
-          2. Analisi pixel → descrizione testuale strutturata (blob, dimensioni, posizioni)
-          3. Verifica se i frame cambiano tra loro (animazione in corso)
-          4. M40 valuta la descrizione testuale vs comportamento atteso
-          5. Se M40 è incerto o success=False, fallback su MI50-vision con le immagini migliori
-
-        Vantaggi vs evaluate_visual legacy:
-          - Non dipende dallo sfondo ambientale (analisi pixel isolata)
-          - M40 è 10x più veloce di MI50
-          - Separazione netta "vedere" (Python) da "giudicare" (M40)
+          0. Serial-first: se eventi attesi trovati nel serial → success immediato
+          1. observe_display: M40 mini-loop con MI50 vision in parallelo
+             → cattura frame freschi, view_frame, detect_motion, count_objects
+          2. Se observer.success_hint=True → M40 conferma vs task description → done
+          3. Se observer.success_hint=False → M40 giudica → fallback MI50-vision se incerto
         """
-        if not frame_paths:
-            return {"success": False, "reason": "Nessun frame disponibile.", "suggestions": "", "thinking": ""}
-
-        # --- Step 0: serial events fast-path (priorità massima) ---
+        # --- Step 0: serial events fast-path ---
         if expected_events and serial_output and serial_output.strip():
             matched = [ev for ev in expected_events if ev in serial_output]
-            if len(matched) >= 1:
+            if matched:
                 return {
                     "success": True,
                     "reason": f"Serial output contiene eventi attesi: {matched}. [serial-first]",
-                    "suggestions": "",
-                    "thinking": "",
-                    "pipeline": "serial-first",
+                    "suggestions": "", "thinking": "", "pipeline": "serial-first",
                 }
 
-        # --- Step 1: analisi pixel sui frame ---
+        # --- Step 1: observer sub-agent ---
+        print("\n  [Evaluator] Observer sub-agent (M40 + MI50 vision)...", flush=True)
+        try:
+            from agent.occhio.observer import observe_display
+            obs = observe_display(goal=task, max_steps=8)
+        except Exception as e:
+            print(f"\n  [Evaluator] Observer fallito: {e} → pixel analysis fallback", flush=True)
+            obs = None
+
+        # --- Step 2: observer success_hint=True → M40 conferma ---
+        if obs and obs.get("display_on") and obs.get("success_hint"):
+            obs_description = (
+                f"Descrizione visiva: {obs.get('description','')}\n"
+                f"Oggetti rilevati: {obs.get('objects_total', 0)} "
+                f"(dots={len(obs.get('dots',[]))}, segments={len(obs.get('segments',[]))})\n"
+                f"Movimento: {'SÌ' if obs.get('motion_detected') else 'NO'} "
+                f"(confidence={obs.get('motion_confidence','?')}, "
+                f"displacement={obs.get('centroid_displacement',0):.1f}px)\n"
+                f"Testo: {obs.get('text') or 'nessuno'}\n"
+                f"success_hint observer: True"
+            )
+            if serial_output and serial_output.strip():
+                obs_description += f"\nSerial: {serial_output[:200]}"
+
+            prompt = (
+                f"Task: {task}\n\n"
+                f"=== REPORT OBSERVER ===\n{obs_description}\n\n"
+                f"L'observer indica success_hint=True. Confermi che il task è completato?\n"
+                f"Rispondi SOLO JSON: {{\"success\": true/false, \"reason\": \"...\", \"suggestions\": \"\"}}"
+            )
+            m40_result = self.m40.generate(
+                [{"role": "system", "content": _M40_VISUAL_JUDGE_SYSTEM},
+                 {"role": "user",   "content": prompt}],
+                max_tokens=200, label="M40→ObserverJudge"
+            )
+            parsed = _safe_json(m40_result["response"], {"success": True, "reason": obs.get("reason",""), "suggestions": ""})
+            success_raw = parsed.get("success", True)
+            success = success_raw.lower() in ("true","1","yes","sì") if isinstance(success_raw, str) else bool(success_raw)
+            if success:
+                return {
+                    "success": True,
+                    "reason": parsed.get("reason", obs.get("reason", "")),
+                    "suggestions": "",
+                    "thinking": f"Observer: {obs.get('description','')[:150]}",
+                    "pipeline": "observer+m40",
+                }
+
+        # --- Step 3: observer fallito o success_hint=False → M40 giudica il report ---
+        if obs:
+            obs_description = (
+                f"Descrizione visiva: {obs.get('description', 'N/A')}\n"
+                f"Display acceso: {obs.get('display_on')}\n"
+                f"Oggetti: {obs.get('objects_total', 0)}\n"
+                f"Movimento: {obs.get('motion_detected')} ({obs.get('motion_confidence','?')})\n"
+                f"Observer reason: {obs.get('reason','')}"
+            )
+            if serial_output and serial_output.strip():
+                obs_description += f"\nSerial: {serial_output[:200]}"
+
+            prompt = (
+                f"Task: {task}\n\n"
+                f"=== REPORT OBSERVER ===\n{obs_description}\n\n"
+                f"Valuta se il task è completato.\n"
+                f"Rispondi SOLO JSON: {{\"success\": true/false, \"reason\": \"...\", \"suggestions\": \"\"}}"
+            )
+            m40_result = self.m40.generate(
+                [{"role": "system", "content": _M40_VISUAL_JUDGE_SYSTEM},
+                 {"role": "user",   "content": prompt}],
+                max_tokens=200, label="M40→ObserverJudge"
+            )
+            parsed = _safe_json(m40_result["response"], {"success": False, "reason": obs.get("reason",""), "suggestions": ""})
+            success_raw = parsed.get("success", False)
+            m40_success = success_raw.lower() in ("true","1","yes","sì") if isinstance(success_raw, str) else bool(success_raw)
+            return {
+                "success": m40_success,
+                "reason": parsed.get("reason", ""),
+                "suggestions": parsed.get("suggestions", ""),
+                "thinking": f"Observer: {obs.get('description','')[:150]}",
+                "pipeline": "observer+m40",
+            }
+
+        # --- Step 4: fallback pixel analysis + MI50 vision ---
+        if not frame_paths:
+            return {"success": False, "reason": "Nessun frame e observer fallito.", "suggestions": "", "thinking": "", "pipeline": "no-data"}
+
+        print("\n  [Evaluator] Fallback pixel analysis + MI50-vision...", flush=True)
         pixel_description = _build_pixel_description(frame_paths)
         animation_detected = _frames_differ(frame_paths)
+        serial_info = f"\nSerial: {serial_output[:300]}" if serial_output and serial_output.strip() else ""
 
-        # Guard: se tutti i frame hanno errore di analisi → salta M40, vai a MI50
-        all_errors = all("errore analisi" in line for line in pixel_description.splitlines() if line.strip())
-        if all_errors:
-            print("\n  [Evaluator] Pixel analysis fallita per tutti i frame → MI50-vision diretto")
-            return self._mi50_visual_fallback(task, frame_paths, serial_output, "Pixel analysis non disponibile.")
-
-        # --- Step 2: serial info aggiuntiva ---
-        serial_info = ""
-        if serial_output and serial_output.strip():
-            serial_info = f"\nOutput seriale: {serial_output[:300]}"
-
-        # --- Step 3: M40 giudica la descrizione testuale ---
         prompt = (
-            f"Task richiesto: {task}\n\n"
-            f"=== ANALISI PIXEL DEI FRAME OLED ===\n"
-            f"(Analisi automatica dei pixel bianchi luminosi sul pannello OLED, "
-            f"ignorando lo sfondo ambientale)\n\n"
-            f"{pixel_description}\n\n"
-            f"Animazione rilevata (frame cambiano tra loro): {'SÌ' if animation_detected else 'NO'}\n"
-            f"{serial_info}\n\n"
-            f"=== ISTRUZIONI ===\n"
-            f"Il pannello OLED ha sfondo nero. I pixel bianchi = elementi del programma.\n"
-            f"- blob_piccoli (≤10px) = possibili palline/oggetti piccoli\n"
-            f"- blob_medi (10-35px) = possibili mattoncini/rettangoli\n"
-            f"- Se i frame cambiano = animazione in corso\n"
-            f"- Se white_ratio > 0.01 (1%) = il display è sicuramente acceso e mostra qualcosa\n"
-            f"- white_ratio >15% con blob_grandi alti = riflessi ambientali (normale, ignora blob_grandi)\n\n"
-            f"Valuta se l'analisi pixel è coerente con il comportamento atteso dal task.\n"
-            f"Rispondi SOLO con JSON: {{\"success\": true/false, \"reason\": \"...\", \"suggestions\": \"\"}}"
+            f"Task: {task}\n\n"
+            f"Analisi pixel OLED:\n{pixel_description}\n"
+            f"Animazione: {'SÌ' if animation_detected else 'NO'}{serial_info}\n\n"
+            f"Rispondi SOLO JSON: {{\"success\": true/false, \"reason\": \"...\", \"suggestions\": \"\"}}"
         )
-
         m40_result = self.m40.generate(
             [{"role": "system", "content": _M40_VISUAL_JUDGE_SYSTEM},
              {"role": "user",   "content": prompt}],
             max_tokens=300, label="M40→VisualJudge"
         )
-        parsed = _safe_json(m40_result["response"], fallback={
-            "success": False, "reason": m40_result["response"], "suggestions": "",
-        })
+        parsed = _safe_json(m40_result["response"], {"success": False, "reason": m40_result["response"], "suggestions": ""})
         success_raw = parsed.get("success", False)
         m40_success = success_raw.lower() in ("true","1","yes","sì") if isinstance(success_raw, str) else bool(success_raw)
 
-        # --- Step 4: se M40 dice True → done ---
         if m40_success:
-            return {
-                "success": True,
-                "reason": parsed.get("reason", ""),
-                "suggestions": "",
-                "thinking": f"Pixel analysis: {pixel_description[:200]}",
-                "pipeline": "opencv+m40",
-            }
+            return {"success": True, "reason": parsed.get("reason",""), "suggestions": "", "thinking": pixel_description[:200], "pipeline": "pixel+m40"}
 
-        # --- Step 5: fallback MI50-vision con immagini preprocessate ---
-        print("\n  [Evaluator] M40 incerto → fallback MI50-vision con immagini migliori")
+        print("\n  [Evaluator] M40 incerto → fallback MI50-vision", flush=True)
         return self._mi50_visual_fallback(task, frame_paths, serial_output, parsed.get("reason",""))
 
     def _mi50_visual_fallback(

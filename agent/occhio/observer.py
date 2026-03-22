@@ -363,6 +363,7 @@ def observe_display(goal: str, max_steps: int = 8) -> dict:
 
     frame_paths: list[str] = []
     last_white_ratio: float = 0.0
+    _last_detect_motion: dict | None = None  # risultato grezzo per post-processing
 
     # view_frame parallelo: lanciato subito dopo capture_frames,
     # risultato disponibile quando M40 lo chiede
@@ -442,6 +443,10 @@ def observe_display(goal: str, max_steps: int = 8) -> dict:
         if tool_name == "check_display_on":
             last_white_ratio = float(tool_result.get("white_ratio", 0.0))
 
+        # Salva risultato detect_motion per post-processing
+        if tool_name == "detect_motion":
+            _last_detect_motion = tool_result
+
         # Dopo capture_frames: lancia view_frame in parallelo mentre M40 pensa
         if tool_name == "capture_frames" and frame_paths:
             _vf_lock.clear()
@@ -459,6 +464,13 @@ def observe_display(goal: str, max_steps: int = 8) -> dict:
             extra = (f"\nNOTA: white_ratio={last_white_ratio:.3f} — "
                      f"i blocks sono probabilmente contenuto visivo (grafica densa), "
                      f"non riflessi ambientali.")
+        # CRITICO: detect_motion è più affidabile di view_frame per il movimento
+        if tool_name == "detect_motion" and tool_result.get("motion_detected"):
+            conf = tool_result.get("confidence", "low")
+            extra += (f"\nIMPORTANTE: detect_motion usa diff pixel tra frame multipli — "
+                      f"fonte primaria per il movimento (confidence={conf}). "
+                      f"view_frame vede UN SOLO frame e può dire 'statiche' anche con animazione. "
+                      f"Se motion_detected=True → il display mostra ANIMAZIONE in corso.")
 
         result_msg = (
             f"Risultato {tool_name}:\n"
@@ -484,6 +496,37 @@ def observe_display(goal: str, max_steps: int = 8) -> dict:
             "success_hint":          False,
             "reason":                "Observer non ha completato l'osservazione",
         }
+
+    # ── Post-processing: detect_motion override ──────────────────────────────
+    # view_frame vede un singolo frame → può dire "statiche" anche con animazione.
+    # detect_motion usa diff tra frame multipli → più affidabile.
+    # Se detect_motion=True (medium/high) ma il report dice motion=False o
+    # success_hint=False con goal che implica animazione → correggiamo.
+    if _last_detect_motion and _last_detect_motion.get("motion_detected"):
+        dm_conf = _last_detect_motion.get("confidence", "low")
+        if dm_conf in ("high", "medium"):
+            # Forza i campi motion nel report
+            if not final_report.get("motion_detected"):
+                log(f"  [Observer] motion override: detect_motion={dm_conf} "
+                    f"→ motion_detected=True nel report")
+                final_report["motion_detected"] = True
+                final_report["motion_confidence"] = dm_conf
+                final_report["centroid_displacement"] = float(
+                    _last_detect_motion.get("centroid_displacement", 0.0)
+                )
+
+            # Se goal implica animazione e success_hint=False → correggi
+            _anim_kw = ("pallina", "boid", "moto", "muov", "animaz", "ball",
+                        "snake", "conway", "fish", "predator", "prey", "punto",
+                        "firework", "sprite", "bounce", "rimbalz")
+            if not final_report.get("success_hint") and any(kw in goal.lower() for kw in _anim_kw):
+                log(f"  [Observer] success_hint override: motion=True + goal animazione "
+                    f"→ success_hint=True")
+                final_report["success_hint"] = True
+                final_report["reason"] = (
+                    (final_report.get("reason", "") or "") +
+                    f" [auto: detect_motion={dm_conf}, animazione confermata]"
+                ).strip()
 
     final_report["steps_taken"] = steps_taken
     return final_report
