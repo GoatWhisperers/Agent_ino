@@ -83,12 +83,26 @@ bash agent/start_servers.sh   # avvia MI50 + M40 + controlla VRAM
 
 **Lezione**: `docs/lezione_conway_v1.md` ✅
 
-### Task Conway Game of Life v2: IN CORSO 🔄
+### Task Conway Game of Life v2: ✅ PARZIALE (success visivo, done:false da pipeline)
 
 **Run dir**: `logs/runs/20260322_024218_Conway_s_Game_of_Life_su_OLED_SSD1306_12`
-**Avviato**: 02:42, MI50 in planning
-**Task description**: completa con helper getCell/setCell, regole swap, bit packing, serial throttle
-**Stato attuale**: step 2 — MI50 plan_functions in corso (streaming)
+
+**Risultato**: compile OK (#3, dopo 2 patch). Upload OK. evaluate_visual: success=True (MI50-vision conferma pixel bianchi). RUN END: FAILED (done phase senza eval_result in anchor — processo pre-commit).
+
+**Serial**: "Generation: 202\nAlive cells: 49" + serial spam (80142 righe/10s — causa non determinata).
+
+**Bug M40 fissi in v2 rispetto v1**: swap corretto, bit packing corretto, getCell/setCell corretti, compute iterate xy corretti.
+
+**Bug M40 rimasti**:
+| Bug | Fix pianificato |
+|-----|-----------------|
+| `uint8_t* grid` invece di `uint8_t grid[][16]` | Fix proattivo aggiunto a compiler.py |
+| Backtick in patch | SYSTEM_PATCH già gestisce |
+| Serial spam (timer millis non funziona correttamente) | `delay(16)` in loop() + gestione stable→reinit |
+
+**Autonomia**: ~85% (solo 2 patch compile automatiche)
+
+**Lezione**: `docs/lezione_conway_v2.md` ✅
 
 ---
 

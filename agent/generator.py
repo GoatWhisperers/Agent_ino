@@ -93,6 +93,8 @@ REGOLE CODICE:
 - CONWAY/SWAP: swapGrids() va chiamato UNA SOLA VOLTA per frame in loop() — computeNextGeneration() NON deve chiamarlo (altrimenti grid oscilla)
 - CONWAY/SERIAL: timer millis() per Serial.print in loop() con variabile lastSerialTime, NON dentro printStatus() che fa return early senza aggiornare il timer
 - CONWAY/COMPUTE: iterare su for(y) for(x) con x in 0..GRID_W, non su for(bitCol) for(x) — gridX = y*BITMAP_COLS+bitCol è SBAGLIATO
+- CONWAY/LOOP: SEMPRE includere delay(16) in loop() dopo drawGrid() + gestire stable→reinit: if(isStable){initGrid();randomizeGrid();currentGen=0;}
+  Il loop() senza delay gira troppo veloce → millis() non avanza → serial timer non funziona correttamente
 """
 
 SYSTEM_PROMPT = """Sei un esperto programmatore Arduino.
