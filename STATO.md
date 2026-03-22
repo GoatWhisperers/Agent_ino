@@ -1,6 +1,6 @@
 # STATO — Programmatore di Arduini
 
-> Ultima modifica: 2026-03-21 (sera — predatore v2 completato)
+> Ultima modifica: 2026-03-22 (notte — predatore v3 + Conway avviato)
 
 ---
 
@@ -27,6 +27,42 @@ cd /home/lele/codex-openai/programmatore_di_arduini
 source .venv/bin/activate
 bash agent/start_servers.sh   # avvia MI50 + M40 + controlla VRAM
 ```
+
+---
+
+## SESSIONE 2026-03-22 (notte) — Predatore v3 + Conway
+
+### Task Predatore v3 (CATCH + RESPAWN con fix sistemici): PARZIALE ⚠️
+
+**Run dir**: `logs/runs/20260322_002640_Simulazione_Boids_con_Predatore_su_displ`
+
+**Risultato**: simulazione compilata e caricata. HUNT/CATCH visibili nel seriale, ma 4 bug nel codice generato da M40.
+
+**Cosa funziona**: upload OK, HUNT/CATCH/RESPAWN eventi presenti, OLED mostra cerchi.
+
+**Bug M40 nel codice generato** (tutti aggiunti a KB + SYSTEM_FUNCTION):
+| Bug | Fix |
+|-----|-----|
+| `predator.id = nextPreyId++` → OOB (id=8, prey[8]) | `predator.id = 0` o `findNearestPrey()` |
+| `lastRespawnTime` globale condiviso | campo `respawnTime` per-preda in struct Boid |
+| `spawnPrey()` usa `nextPreyId` ciclico → RESPAWN:0 spam | `respawnPrey(int i)` con indice esplicito |
+| Serial.print senza println → CATCH concatenato a HUNT | `Serial.println(fleeCount)` per terminare riga HUNT |
+
+**Bug sistemici nel tool_agent scoperti**:
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | Processo parte prima del commit → compiler.py OLD in memoria | Riavviare processo dopo ogni commit che tocca compiler.py |
+| 2 | Fase `done` senza anchor → MI50 chiama patch_code in loop | `_anchor_done()` aggiunto in tool_agent.py |
+
+**Autonomia**: ~40% (fix manuali per dist()+drawCircle, checkpoint update, resume × 3)
+
+**Lezione**: `docs/lezione_predatore_v3.md` ✅
+
+### Task Conway Game of Life: IN CORSO 🔄
+
+**Run dir**: `logs/runs/20260322_014931_Conway_Game_of_Life...`
+**Avviato**: 01:49, MI50 in planning
+**Bit-packing**: grid uint8_t[64][16] (1024 byte vs 8192 byte bool[][])
 
 ---
 

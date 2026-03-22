@@ -81,6 +81,11 @@ REGOLE CODICE:
 - TIMER: unsigned long per variabili millis() — MAI int (overflow a 32s)
 - dist(): NON esiste in Arduino — usare sqrt(pow(x2-x1,2)+pow(y2-y1,2))
 - setupPhysics(): NON inventare funzioni inesistenti — metti init direttamente in setup()
+- drawCircle(x,y,r,color): x,y,r DEVONO essere int — mai float direttamente: drawCircle((int)x,(int)y,(int)r,SSD1306_WHITE)
+- BOIDS/PREDATORE: predator.id = indice preda TARGET (0..N-1). MAI predator.id = nextPreyId++ dopo init prede (porta OOB)
+- BOIDS/RESPAWN: timer respawn per-preda (campo respawnTime in struct Boid), MAI timer globale lastRespawnTime condiviso
+- BOIDS/RESPAWN: funzione respawnPrey(int i) con indice esplicito, MAI spawnPrey() con nextPreyId ciclico
+- SERIAL: ogni messaggio multi-campo deve terminare con Serial.println(), mai Serial.print() — altrimenti messaggi si concatenano
 """
 
 SYSTEM_PROMPT = """Sei un esperto programmatore Arduino.

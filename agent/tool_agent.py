@@ -342,6 +342,8 @@ class _ContextManager:
             return self._anchor_uploading(sess)
         elif phase == _Session.PHASE_EVALUATING:
             return self._anchor_evaluating(sess)
+        elif phase == _Session.PHASE_DONE:
+            return self._anchor_done(sess)
         else:
             return self._anchor_planning(sess)  # fallback
 
@@ -415,6 +417,25 @@ class _ContextManager:
             parts.append(f"OUTPUT SERIALE:\n{sess.serial[:400]}")
         if sess.frame_paths:
             parts.append(f"FRAME WEBCAM: {len(sess.frame_paths)} frame disponibili")
+        return "\n\n".join(parts)
+
+    def _anchor_done(self, sess: _Session) -> str:
+        """Fase done: valutazione completata, salva in KB e chiudi."""
+        serial_hint = ""
+        if sess.serial:
+            # Mostra le ultime righe del seriale (più informative delle prime)
+            lines = [l for l in sess.serial.splitlines() if l.strip()]
+            tail = "\n".join(lines[-8:]) if lines else ""
+            if tail:
+                serial_hint = f"\nOUTPUT SERIALE (ultime righe):\n{tail}"
+
+        parts = [
+            f"TASK: {sess.task[:80]}\nBOARD: {sess.fqbn}\n"
+            f"STATO: valutazione completata.{serial_hint}\n"
+            f"ISTRUZIONE CRITICA: chiama save_to_kb per salvare i pattern appresi, "
+            f"poi chiudi con {{\"done\": true}}. "
+            f"NON richiamare compile, patch_code, upload_and_read o evaluate_*."
+        ]
         return "\n\n".join(parts)
 
     def _extract_relevant_code(self, sess: _Session) -> str:
