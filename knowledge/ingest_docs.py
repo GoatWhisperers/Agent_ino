@@ -190,6 +190,158 @@ LESSONS = [
      "Leggere codegen_result, phase, step. Continuare dall'esatta posizione con --resume.",
      "python agent/tool_agent.py --resume logs/runs/<run_dir>/", ""),
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # LESSONS DA: lezione_3palline.md, lezione_boids.md, lezione_conway_v2.md,
+    #             lezione_conway_v3.md, lezione_muretto.md, lezione_occhio_bionico.md,
+    #             lezione_predatore_completa.md, lezione_sistema_lessons.md
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # ── 3 Palline / Fisica elastica ──────────────────────────────────────────
+
+    ("collision_physics",
+     "IMPULSO NEGATIVO: in collisione elastica verificare impulso < 0 prima di applicarlo. "
+     "Impulso ≥ 0 significa sfere già in allontanamento — non applicare.",
+     "if (impulso < 0) { vx1 += impulso*nx; vy1 += impulso*ny; }", ""),
+
+    ("oled_physics",
+     "DISPLAY UPDATE: clearDisplay() + disegno + display.display() — TUTTE E TRE necessarie ogni frame. "
+     "Solo clearDisplay() senza display.display() → schermo nero.",
+     "void draw() { display.clearDisplay(); drawPixel(...); display.display(); }", ""),
+
+    ("collision_physics",
+     "DISTANZA COLLISIONE: usare distSq <= (r1+r2)² — NON distSq <= r² (raggio singolo). "
+     "Con 2 sfere di raggio 3: check (3+3)²=36, non 9.",
+     "if (distSq <= (2*BALL_RADIUS)*(2*BALL_RADIUS)) { /* collisione */ }", ""),
+
+    ("esp32_serial",
+     "SERIAL COLLISIONE: stampare HIT solo quando avviene una collisione reale, non ogni N ms. "
+     "Serial periodico senza evento mascherava fisica rotta in valutazione.",
+     "if (collision_happened) Serial.println(\"HIT\");  // NON ogni 500ms", ""),
+
+    # ── Boids puri ───────────────────────────────────────────────────────────
+
+    ("boids_physics",
+     "SEPARAZIONE THRESHOLD: applicare forza repulsiva SOLO se distanza < SEP_RADIUS (es. 8px). "
+     "Senza threshold la forza esplode a corto raggio.",
+     "if (dist < SEP_RADIUS) { repulsive force += 1/dist; }", ""),
+
+    ("boids_physics",
+     "ALLINEAMENTO AVERAGE: dividere la somma delle velocità per il numero di vicini. "
+     "Somma senza divisione → forza cresce con il numero di vicini.",
+     "if (cnt > 0) { dx /= cnt; dy /= cnt; }  // media, non somma", ""),
+
+    ("oled_physics",
+     "PESI FLOCKING: bilanciamento sep>ali>coh (es. 1.5:0.8:0.6) mantiene lo stormo coeso. "
+     "Coesione troppo alta → implosione; separazione troppo alta → esplosione.",
+     "steer = sep*1.5 + ali*0.8 + coh*0.6", ""),
+
+    # ── Conway v2 ────────────────────────────────────────────────────────────
+
+    ("Conway",
+     "GETCELL/SETCELL: usare funzioni helper per bit packing: colonna=x/8, bit=x%8. "
+     "MAI indexing diretto con x%BITMAP_COLS (bit order invertito).",
+     "uint8_t getCell(uint8_t grid[][16], int x, int y) { return (grid[y][x/8] >> (x%8)) & 1; }", ""),
+
+    ("Conway",
+     "SERIAL TIMER IN LOOP: millis() check in loop(), NON dentro printStatus(). "
+     "printStatus() in ogni frame → serial spam 8000 righe/sec.",
+     "if (millis()-lastTime >= INTERVAL) { printStatus(); lastTime=millis(); }", ""),
+
+    ("Conway",
+     "SWAP GRIDS ONCE: swapGrids() chiamata UNA SOLA VOLTA per frame in loop(). "
+     "computeNextGeneration() e checkStability() NON devono chiamare swap.",
+     "In loop(): computeNext(); swapGrids(); checkStability(); draw();", ""),
+
+    ("Conway",
+     "COMPUTE ITERATE XY: computeNextGeneration() itera for(y) for(x) con getCell/setCell. "
+     "MAI assumere rappresentazione packed nell'iterazione.",
+     "for(y){for(x){ int n=countNeighbors(x,y); setCell(next,x,y,newState); }}", ""),
+
+    ("oled_physics",
+     "DELAY 16 IN LOOP: delay(16) dopo display.display() garantisce ~60fps E che millis() avanzi. "
+     "Senza delay i timer millis()-based smettono di funzionare.",
+     "delay(16); // dopo display.display() alla fine di loop()", ""),
+
+    # ── Conway v3 ────────────────────────────────────────────────────────────
+
+    ("Conway",
+     "DRAWPIXEL API: display.drawPixel(x,y,color) è l'unico metodo per singolo pixel. "
+     "display.setPixel() NON esiste su Adafruit_SSD1306 → errore compilazione.",
+     "display.drawPixel(x, y, SSD1306_WHITE);", ""),
+
+    ("Conway",
+     "NAMING CONFLICT: MAI stesso nome per variabile globale e funzione. "
+     "bool isStable=false + bool isStable(){} → 'redeclared as different kind of entity'.",
+     "uint8_t isStableState; bool checkStability() { ... }", ""),
+
+    # ── Muretto ──────────────────────────────────────────────────────────────
+
+    ("collision_physics",
+     "AABB MATTONCINO RISOLUZIONE: dopo check rect-circle, risolvere sovrapposizione spostando "
+     "la palla fuori dal mattoncino prima di invertire la velocità.",
+     "if (overlap) { reposiziona palla; if (sopra/sotto) vy=-vy; else vx=-vx; }", ""),
+
+    ("game_logic",
+     "RIGENERAZIONE CONTEGGIO: tracciare destroyed_count. Quando tutti i mattoncini sono distrutti "
+     "riposizionarli e ripristinare hp. NON usare timer — usare contatore.",
+     "if (destroyedCount == BRICK_COUNT) { for each brick: hp=MAX; randomPos(); }", ""),
+
+    # ── Occhio Bionico / Evaluator ────────────────────────────────────────────
+
+    ("evaluate_visual",
+     "SERIAL FIRST: se expected_events trovati nel serial output → success=True immediato (0.1s). "
+     "Il seriale è il verificatore funzionale più affidabile per fisica e eventi.",
+     "if any(ev in serial for ev in expected_events): return True  # serial-first", ""),
+
+    ("evaluate_visual",
+     "BLOB STATISTICS: white_ratio da solo non basta. Usare blob_count + blob_avg_size. "
+     "white_ratio > 15% può essere sfondo ambientale riflesso sull'OLED.",
+     "if white_ratio>20% AND blob_count>3 AND blob_avg>5px: likely display active", ""),
+
+    ("evaluate_visual",
+     "M40 JUDGE TESTUALE: M40 VisualJudge su descrizione testuale (3s) è migliore di MI50-vision (5-10min). "
+     "Mandare a M40: 'N blob piccoli, M blob medi' → M40 giudica vs task.",
+     "Usare M40 VisualJudge per valutazione visiva rapida; MI50-vision solo come fallback", ""),
+
+    ("evaluate_visual",
+     "LIMITE PIXEL ANALYSIS: analisi pixel NON distingue fisica corretta da fisica rotta. "
+     "Due animazioni identiche visivamente possono avere fisica opposta (vy invertito doppio).",
+     "Affidarsi al serial (HIT/BREAK) per verificare la correttezza della fisica", ""),
+
+    # ── Predatore Completo ───────────────────────────────────────────────────
+
+    ("boids_predator",
+     "SEEK TARGET UPDATE: il predatore deve aggiornare il target ogni frame — closest prey dinamico. "
+     "Target fisso → predatore non cambia preda quando una viene catturata.",
+     "closestPrey=0; for(j<N) if(dist(pred,j)<dist(pred,closestPrey)) closestPrey=j;", ""),
+
+    ("boids_predator",
+     "PREY FLEE RADIUS: la preda fugge SOLO se predatore è entro FLEE_RADIUS (es. 30px). "
+     "Fuga costante senza radius check → tutte le prede sempre in fuga.",
+     "if (dist_to_pred < FLEE_RADIUS) { flee_force = -direction * weight; }", ""),
+
+    ("boids_predator",
+     "BOUNCE NON WRAP: agenti fisici usano rimbalzo (abs velocity) NON wrap-around (teletrasporto). "
+     "Wrap-around → predatore/preda sparisce e riappare → glitch visivo.",
+     "if (x < 2) { x=2; vx=abs(vx); } if (x > 125) { x=125; vx=-abs(vx); }", ""),
+
+    ("compiler_patcher",
+     "M40 PATCHER REGRESSIONE: se codice patchato < 60% righe originale → M40 ha eliminato funzioni. "
+     "Scartare il patch e tornare al codice originale.",
+     "if len(patched) < 0.6*len(original): discard patch, use original", ""),
+
+    # ── Sistema / Lessons ────────────────────────────────────────────────────
+
+    ("system",
+     "LESSONS SEMANTIC: lessons in KB recuperate per similarità al task (semantic search ChromaDB). "
+     "Lessons task-type specifiche (OLED, physics, boids) → recupero corretto.",
+     "search_lessons(task_desc, n=5) → top-5 lessons come contesto per MI50/M40", ""),
+
+    ("system",
+     "GUARD FASI: tool che modificano codice (plan_functions, generate_globals) bloccati in fasi avanzate. "
+     "MI50 riceve cached result + hint 'chiama ADESSO: X' per avanzare.",
+     "if phase >= COMPILING: return {skipped:True, reason:'...Chiama ADESSO: patch_code'}", ""),
+
 ]
 
 

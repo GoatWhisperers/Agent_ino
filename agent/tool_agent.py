@@ -1039,6 +1039,20 @@ def _patch_code(args: dict, sess: _Session) -> dict:
                        "Il codice originale è stato ripristinato. Analizza gli errori più attentamente."
         }
 
+    # Verifica che setup() e loop() esistano ancora dopo il patch
+    if "void setup()" not in patched_code or "void loop()" not in patched_code:
+        if sess.logger:
+            sess.logger.log(
+                "[PATCH REGRESSION] patch ha eliminato setup() o loop() — patch scartato"
+            )
+        sess.set_phase(_Session.PHASE_COMPILING)
+        return {
+            "ok": False,
+            "lines": patched_lines,
+            "warning": "Patch scartato: mancano void setup() o void loop(). "
+                       "Assicurati che il codice completo contenga setup() e loop()."
+        }
+
     sess.write_sketch(patched_code)
     # Dopo il patch torniamo a compilare
     sess.set_phase(_Session.PHASE_COMPILING)
