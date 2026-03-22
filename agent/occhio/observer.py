@@ -26,107 +26,34 @@ Tool disponibili nell'observer:
 import json
 import re
 import sys
+import threading
 from agent.occhio._common import log
 
 # ── System prompt per M40-Observer ───────────────────────────────────────────
 
 _OBSERVER_SYSTEM = """\
-Sei un agente osservatore visivo per display OLED Arduino.
-Il tuo UNICO compito è osservare il display e riportare cosa vedi.
+Sei un agente osservatore OLED. Rispondi SOLO con JSON valido.
 
-HAI ACCESSO A QUESTI TOOL (chiamali in sequenza, uno alla volta):
+TOOL disponibili:
+  check_display_on() → {on, white_ratio}
+  capture_frames(n, interval_ms) → {ok, frame_paths, n_frames}
+  detect_motion(frame_paths) → {motion_detected, mean_diff, centroid_displacement, confidence}
+  count_objects(frame_paths) → {total, dots, segments, blocks}
+  view_frame(frame_path) → {description} [MI50 vision — già in esecuzione in parallelo]
+  run_analysis(frame_paths, threshold, contrast) → {total, dots, segments, blocks}
+  recalibrate() → {preset}
+  read_text(frame_paths) → {text_found, text}
 
-  check_display_on()
-    → {"on": bool, "white_ratio": float, "preset_used": str}
-    Chiamalo SEMPRE PRIMA di tutto. Se on=false, ferma subito e riporta.
-    Se white_ratio sembra basso ma il display dovrebbe essere acceso →
-    chiama recalibrate() per trovare il preset camera migliore.
+SEQUENZA: check_display_on → capture_frames → view_frame → detect_motion → count_objects → report
 
-  capture_frames(n, interval_ms)
-    → {"ok": bool, "frame_paths": [...], "n_frames": int}
-    Cattura N frame a distanza fissa. Usa n=3, interval_ms=1000 per default.
-    Se task richiede "animazione veloce": n=5, interval_ms=500.
-    Se task richiede "verifica cambio stato": n=2, interval_ms=3000.
+FORMATO tool call:
+{"tool": "nome", "args": {}, "reason": "perché"}
 
-  detect_motion(frame_paths)
-    → {"motion_detected": bool, "mean_diff": float, "centroid_displacement": float, "confidence": str}
-    Richiede almeno 2 frame. Se confidence="low" ma ti aspetti movimento →
-    chiama capture_frames di nuovo con interval_ms più lungo.
+FORMATO report finale:
+{"done": true, "report": {"display_on": bool, "objects_total": int, "dots": [], "segments": [], "motion_detected": bool, "motion_confidence": str, "centroid_displacement": float, "text": null, "description": str, "success_hint": bool, "reason": str}}
 
-  count_objects(frame_paths)
-    → {"total": int, "dots": [...], "segments": [...], "blocks": int, "description": str}
-    dots=punti piccoli (≤16px), segments=forme medie (17-1500px).
-    INTERPRETAZIONE BLOCKS (blob >1500px):
-      - white_ratio < 0.02 e blocks=1: probabile riflesso ambientale → ignora.
-      - white_ratio >= 0.02 e blocks=1: display con grafica densa → contenuto visivo.
-      - blocks > 1 con motion_detected=true: quasi certamente oggetti in movimento.
-    Se il risultato ti sembra strano → chiama run_analysis con parametri diversi
-    oppure chiama view_frame per vedere il frame con i tuoi occhi.
-
-  view_frame(frame_path)
-    → {"description": str, "objects_seen": str, "confidence": str}
-    MI50 vision guarda il frame raw e descrive liberamente cosa vede sul display.
-    CHIAMALO SEMPRE dopo capture_frames — è il passo di osservazione diretta.
-    Fornisce la descrizione qualitativa che i numeri di count_objects non possono dare.
-    LENTO (~30-60s) ma obbligatorio per una valutazione affidabile.
-
-  run_analysis(frame_paths, threshold, contrast)
-    → {"total": int, "dots": [...], "segments": [...], "blocks": int, "description": str}
-    Riesegue blob detection con parametri custom:
-      threshold: int 0-255, soglia luminosità pixel (default 160)
-        → abbassa se il display appare scuro (150, 120, 100)
-        → alza se ci sono troppi falsi positivi (180, 200)
-      contrast: float 1.0-5.0, boost contrasto PIL prima dell'analisi (default 1.0)
-        → aumenta (2.0, 3.0) se il display è poco contrastato
-    Usalo se count_objects/view_frame danno risultati discordanti o inattesi.
-
-  recalibrate()
-    → {"preset": str, "scores": dict, "white_ratio_at_calibration": float}
-    Prova tutti i preset camera (standard/dark/bright/oled_only/high_contrast)
-    e salva il migliore. Usalo se: white_ratio è inaspettatamente basso,
-    il display sembra presente ma non rilevato, dopo cambio setup fisico.
-    Richiede ~10s (5 catture).
-
-  read_text(frame_paths)
-    → {"text_found": bool, "text": str, "confidence": str}
-    LENTO (~60s). Usalo SOLO se goal menziona "testo", "score", "numero", "messaggio".
-
-FORMATO RISPOSTA (scegli UNO per turno):
-
-  Tool call:
-  {"tool": "nome_tool", "args": {...}, "reason": "perché lo chiamo"}
-
-  Report finale (quando hai abbastanza info):
-  {"done": true, "report": {
-    "display_on": bool,
-    "objects_total": int,
-    "dots": [...],
-    "segments": [...],
-    "motion_detected": bool,
-    "motion_confidence": str,
-    "centroid_displacement": float,
-    "text": str,
-    "description": str,
-    "success_hint": bool,
-    "reason": "spiegazione concisa (max 100 parole)"
-  }}
-
-SEQUENZA STANDARD (da seguire in questo ordine):
-  1. check_display_on()
-  2. capture_frames(n=3, interval_ms=1000)
-  3. view_frame(frame_paths[0])       ← SEMPRE — visione diretta sul frame grezzo
-  4. detect_motion(frame_paths)       ← se goal menziona movimento/animazione
-  5. count_objects(frame_paths)       ← conta blob per confermare numeri
-  6. run_analysis() se count_objects discorda con view_frame
-  7. report finale
-
-REGOLE:
-1. UNA SOLA azione per risposta. Aspetta il risultato prima di procedere.
-2. NON inventare risultati. Se check_display_on ritorna on=false, fermati.
-3. MAX 8 passi totali (incluso il report finale).
-4. Il report finale DEVE contenere success_hint: true/false rispetto al goal.
-5. Usa ENTRAMBE le fonti — view_frame per la descrizione qualitativa, count_objects
-   per i numeri. Se discordano, chiama run_analysis con parametri diversi.
+REGOLE: 1 azione/turno. NON inventare risultati. Max 8 passi. success_hint rispetto al goal.
+Se display OFF → stop immediato. Blocks >1500px = riflesso se white_ratio<0.02.
 """
 
 
@@ -347,7 +274,7 @@ def _call_vision_tool(tool_name: str, args: dict, frame_paths: list[str]) -> dic
         return read_text(fp)
 
     else:
-        return {"error": f"Tool '{tool_name}' non disponibile per l'osservatore.",
+        return {"error": f"Tool '{tool_name}' non disponibile. Usa il formato: {{\"done\": true, \"report\": {{...}}}}",
                 "disponibili": ["check_display_on", "capture_frames", "detect_motion",
                                 "count_objects", "view_frame", "run_analysis",
                                 "recalibrate", "read_text"]}
@@ -355,25 +282,39 @@ def _call_vision_tool(tool_name: str, args: dict, frame_paths: list[str]) -> dic
 
 # ── JSON parser ────────────────────────────────────────────────────────────────
 
+_REPORT_KEYS = {"display_on", "success_hint", "motion_detected", "objects_total"}
+
 def _parse_m40_response(raw: str) -> dict | None:
     """Estrae l'oggetto JSON dalla risposta M40. Ritorna None se non trovato."""
-    # Cerca JSON in blocchi markdown ```json ... ```
-    m = re.search(r"```json\s*(.*?)```", raw, re.DOTALL)
+    # Cerca JSON in blocchi markdown ``` ... ``` (con o senza 'json')
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
     if m:
         try:
-            return json.loads(m.group(1).strip())
+            obj = json.loads(m.group(1).strip())
+            if isinstance(obj, dict):
+                # Se M40 ha scritto il report direttamente (senza "done": true) — wrappa
+                if _REPORT_KEYS & obj.keys() and "tool" not in obj:
+                    return {"done": True, "report": obj}
+                return obj
         except (json.JSONDecodeError, ValueError):
             pass
-    # Usa raw_decode per trovare JSON con "tool" o "done" (non sotto-oggetti vuoti)
+    # Usa raw_decode per trovare JSON con "tool", "done" o chiavi report
     decoder = json.JSONDecoder()
     positions = [i for i, c in enumerate(raw) if c == "{"]
     best = None
     for pos in positions:
         try:
             obj, _ = decoder.raw_decode(raw, pos)
-            if isinstance(obj, dict) and ("tool" in obj or "done" in obj):
-                if best is None or len(obj) > len(best):
-                    best = obj
+            if not isinstance(obj, dict):
+                continue
+            is_tool = "tool" in obj or "done" in obj
+            is_report = bool(_REPORT_KEYS & obj.keys()) and "tool" not in obj
+            if is_tool or is_report:
+                candidate = obj
+                if is_report and "done" not in candidate:
+                    candidate = {"done": True, "report": obj}
+                if best is None or len(candidate) > len(best):
+                    best = candidate
         except (json.JSONDecodeError, ValueError):
             pass
     return best
@@ -423,6 +364,22 @@ def observe_display(goal: str, max_steps: int = 8) -> dict:
     frame_paths: list[str] = []
     last_white_ratio: float = 0.0
 
+    # view_frame parallelo: lanciato subito dopo capture_frames,
+    # risultato disponibile quando M40 lo chiede
+    _vf_future: dict | None = None   # None = non ancora lanciato
+    _vf_lock = threading.Event()     # segnala completamento
+
+    def _launch_view_frame_async(path: str) -> None:
+        nonlocal _vf_future
+        log(f"  [view_frame async] avvio MI50 vision su {path.split('/')[-1]}")
+        try:
+            result = _tool_view_frame(path)
+        except Exception as e:
+            result = {"error": str(e), "description": "", "confidence": "low"}
+        _vf_future = result
+        _vf_lock.set()
+        log(f"  [view_frame async] completato: {str(result.get('description',''))[:80]}")
+
     messages = [
         {"role": "system", "content": _OBSERVER_SYSTEM},
         {"role": "user",   "content": f"GOAL: {goal}\n\nInizia l'osservazione seguendo la sequenza standard: check_display_on → capture_frames → view_frame → detect_motion/count_objects → report."},
@@ -465,11 +422,36 @@ def observe_display(goal: str, max_steps: int = 8) -> dict:
 
         log(f"  → {tool_name}({json.dumps(tool_args, ensure_ascii=False)[:80]})")
 
-        tool_result = _call_vision_tool(tool_name, tool_args, frame_paths)
+        # view_frame: usa il risultato precalcolato in parallelo se disponibile
+        if tool_name == "view_frame":
+            if _vf_future is not None:
+                log("  [view_frame] risultato già pronto (parallelo) ✓")
+                tool_result = _vf_future
+            elif _vf_lock.is_set():
+                tool_result = _vf_future
+            else:
+                # Async non ancora completato — aspetta (max 120s)
+                log("  [view_frame] attendo completamento MI50 vision...")
+                _vf_lock.wait(timeout=120)
+                tool_result = _vf_future or {"error": "timeout", "description": "", "confidence": "low"}
+        else:
+            tool_result = _call_vision_tool(tool_name, tool_args, frame_paths)
+
         log(f"  ← {json.dumps(tool_result, ensure_ascii=False, default=str)[:150]}")
 
         if tool_name == "check_display_on":
             last_white_ratio = float(tool_result.get("white_ratio", 0.0))
+
+        # Dopo capture_frames: lancia view_frame in parallelo mentre M40 pensa
+        if tool_name == "capture_frames" and frame_paths:
+            _vf_lock.clear()
+            _vf_future = None
+            t = threading.Thread(
+                target=_launch_view_frame_async,
+                args=(frame_paths[0],),
+                daemon=True,
+            )
+            t.start()
 
         # Hint contestuale per count_objects con display denso
         extra = ""
