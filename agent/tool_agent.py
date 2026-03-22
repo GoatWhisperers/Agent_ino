@@ -120,6 +120,7 @@ REGOLA 2 — NON scrivere MAI codice negli args. M40 genera tutto il codice.
 REGOLA 3 — generate_globals e generate_all_functions usano args:{} (nessun parametro).
 REGOLA 4 — SE il messaggio di sistema dice ISTRUZIONE: chiama ESATTAMENTE quel tool. NON fare altro.
 REGOLA 5 — NON richiamare plan_task/plan_functions/generate_globals se sei già in fase upload o evaluate.
+REGOLA 6 — Se plan_task restituisce {"skipped":true}, il piano è già pronto. Chiama SUBITO il tool indicato in "reason".
 
 FORMATO (scegli UNO):
   Tool call : {"tool":"nome","args":{...},"reason":"perché"}
@@ -490,11 +491,17 @@ class _ContextManager:
             ev_pipeline = sess.eval_result.get("pipeline", "")
             eval_hint = f"\nVALUTAZIONE: success={ev_success} [{ev_pipeline}] — {ev_reason[:120]}"
 
+        # Determina il valore di success da mostrare nell'anchor
+        ev_success_val = sess.eval_result.get("success", False) if sess.eval_result else False
+        success_str = "true" if ev_success_val else "false"
+
         parts = [
             f"TASK: {sess.task[:80]}\nBOARD: {sess.fqbn}\n"
             f"STATO: valutazione completata.{eval_hint}{serial_hint}\n"
-            f"ISTRUZIONE CRITICA: chiama save_to_kb per salvare i pattern appresi, "
-            f"poi chiudi con {{\"done\": true}}. "
+            f"ISTRUZIONE CRITICA:\n"
+            f"1. Chiama save_to_kb (args:{{}}) per salvare i pattern appresi.\n"
+            f"2. Poi chiudi con ESATTAMENTE questo JSON (success DEVE riflettere la valutazione):\n"
+            f'   {{"done": true, "success": {success_str}, "reason": "<descrizione breve del risultato>"}}\n'
             f"NON richiamare compile, patch_code, upload_and_read o evaluate_*. "
             f"La valutazione è già stata completata — non rivalutare."
         ]
