@@ -124,6 +124,31 @@
       "quando": "Come ULTIMO step di valutazione, quando serve un giudizio complessivo. Non come primo check.",
       "costo": "M40: ~5-10s. MI50 fallback (solo se confidence < 0.6): ~30-60s.",
       "nota_autonomia": "Se success_hint=true e confidence>=0.6, il risultato viene salvato in sess.eval_result automaticamente."
+    },
+
+    "observe_display": {
+      "scopo": "PREFERITO per valutazione visiva. M40 assume temporaneamente il ruolo di agente osservatore: esegue autonomamente l'intero flusso (check→capture→motion→count→report) e riporta UN SOLO risultato strutturato. Da MI50 è UNA SOLA tool call. Il contesto di MI50 non viene inquinato dai passi intermedi.",
+      "args": {
+        "goal": "string — cosa deve osservare (es. 'verifica che ci siano 5 boids in movimento')",
+        "max_steps": "int — max passi nel mini-loop M40 (default 6, incluso report finale)"
+      },
+      "output": {
+        "display_on": "bool",
+        "objects_total": "int",
+        "dots": "list[{cx, cy, area}] — punti piccoli ≤16px",
+        "segments": "list[{cx, cy, area}] — forme medie 17-200px",
+        "motion_detected": "bool",
+        "motion_confidence": "string — 'high'|'medium'|'low'",
+        "centroid_displacement": "float — px di spostamento medio centroidi",
+        "text": "string — testo letto (se goal lo richiedeva)",
+        "description": "string — descrizione libera dell'osservazione",
+        "success_hint": "bool — il goal sembra raggiunto?",
+        "reason": "string — spiegazione concisa (max 100 parole)",
+        "steps_taken": "int"
+      },
+      "quando": "PREFERITO rispetto a capture_frames+describe_scene quando serve valutazione completa. Una sola chiamata, nessun inquinamento context MI50.",
+      "costo": "~15-30s (M40 mini-loop 3-5 passi). Nessun overhead MI50.",
+      "nota": "Se display_on=false, M40 si ferma subito (2 passi). Se success_hint=true, sess.eval_result viene aggiornato automaticamente."
     }
   },
 

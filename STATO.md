@@ -1,6 +1,6 @@
 # STATO — Programmatore di Arduini
 
-> Ultima modifica: 2026-03-22 (sera — Progetto Snake L1✅ L2✅ L3✅ L4🔄, 85+ lessons KB)
+> Ultima modifica: 2026-03-22 (notte — Occhio Bionico v2: observer sub-agent M40 completato)
 
 ---
 
@@ -27,6 +27,62 @@ cd /home/lele/codex-openai/programmatore_di_arduini
 source .venv/bin/activate
 bash agent/start_servers.sh   # avvia MI50 + M40 + controlla VRAM
 ```
+
+---
+
+## SESSIONE 2026-03-22 (notte/fine) — Occhio Bionico v2: Observer Sub-Agent
+
+### Modulo `agent/occhio/` — implementazione completa ✅
+
+**Obiettivo**: Implementare i vision tools modulari + sub-agent pattern per M40 come osservatore visivo.
+
+#### File creati
+| File | Contenuto |
+|------|-----------|
+| `agent/occhio/__init__.py` | Export dei 7 tool pubblici |
+| `agent/occhio/_common.py` | Costanti, PRESETS (5 preset camera), calibration I/O |
+| `agent/occhio/capture.py` | `capture_frames()`, `check_display_on()`, retry adattivo |
+| `agent/occhio/analyze.py` | `detect_motion()`, `count_objects()`, blob detection scipy |
+| `agent/occhio/calibrate.py` | `calibrate_eye()`, scoring per preset camera |
+| `agent/occhio/read.py` | `read_text()` via MI50-vision, context isolato |
+| `agent/occhio/describe.py` | `describe_scene()`: blob→M40 judge→MI50 fallback |
+| `agent/occhio/observer.py` | **Sub-agent pattern**: M40 mini-ReAct loop come osservatore |
+| `tools/occhio.json` | Guida API per MI50, tutti i tool documentati |
+| `docs/occhio_bionico.md` | Documentazione architetturale completa |
+| `tests/test_occhio_synth.py` | Test su immagini sintetiche (no Raspberry) |
+
+#### Observer sub-agent (M40) — pattern chiave
+```
+MI50 chiama: observe_display({"goal": "verifica 5 boids in movimento"})
+    ↓ (UNA SOLA tool call da MI50)
+M40 mini-ReAct loop (context isolato, max 6 passi):
+    check_display_on → capture_frames → detect_motion → count_objects → report
+    ↓
+Risultato strutturato: {display_on, objects_total, dots, segments,
+                        motion_detected, success_hint, reason, steps_taken}
+    ↓
+MI50 riceve UN SOLO risultato — context principale NON inquinato
+```
+
+#### Tool registrati in `tool_agent.py`
+- `observe_display` ← **PREFERITO** (M40 sub-agent, 1 call da MI50)
+- `calibrate_eye`, `capture_frames`, `check_display_on`
+- `detect_motion`, `count_objects`, `read_text`, `describe_scene`
+
+#### Test sintetici (con M40 live)
+- Display boids (5 dot): M40 VisualJudge → `success=True`, confidence=0.95
+- Display snake (30 segmenti): M40 → `success=True`, confidence=0.80
+- Display OFF: M40 → `success=False`, confidence=0.90
+
+#### Bug scoperti e fixati durante implementazione
+| Bug | Fix |
+|-----|-----|
+| `check_display_on` importato da `analyze.py` (non esiste lì) | Importato da `capture.py` |
+| JPEG quantization azzera mean_diff tra frame → motion=False | Immagini test salvate come PNG |
+| Filenames identici → stesso file → mean_diff=0 | Counter globale `_SAVE_CTR` + nomi unici |
+| Blob 6×6 ellipse = 50px → "segment" non "dot" | Ridisegnato come rettangolo 3×3 (9px) |
+| `client.chat()` non esiste in M40Client | Usato `client.generate(messages, max_tokens=100)` |
+| check_display_on threshold 0.003 → 5 dot = 45px fail | Test usa `make_display_snake()` (2160px) |
 
 ---
 

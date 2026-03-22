@@ -139,7 +139,12 @@ FLUSSO (un passo alla volta, aspetta il risultato prima di procedere):
   7. OBBLIGATORIO se il task usa OLED/display: valutazione visiva.
      OPZIONE A (semplice): grab_frames → evaluate_visual
        evaluate_visual args: {"expected_events": ["GEN:", "ALIVE:", "HIT"]} → serial-first se eventi trovati
-     OPZIONE B (modulare, più precisa):
+     OPZIONE B (PREFERITA — singola tool call):
+       observe_display → {"goal": "cosa devo vedere sul display"}
+       M40 esegue autonomamente l'intero flusso osservativo (check→capture→motion→count→report).
+       Da MI50 è UNA SOLA chiamata. Risultato: {display_on, objects_total, dots, segments,
+       motion_detected, motion_confidence, success_hint, reason, steps_taken}
+     OPZIONE C (modulare, controllo manuale):
        check_display_on  → verifica che il display mostri qualcosa (white_ratio > 0.003)
        capture_frames    → {"n": 3, "interval_ms": 1000} — timing interno, usa preset calibrazione
        detect_motion     → {"frame_paths": [...]} — c'è movimento?
@@ -1240,6 +1245,23 @@ def _read_text_tool(args: dict, sess: _Session) -> dict:
     return read_text(frame_paths)
 
 
+def _observe_display_tool(args: dict, sess: _Session) -> dict:
+    from agent.occhio.observer import observe_display
+    goal = args.get("goal", sess.task[:200])
+    max_steps = int(args.get("max_steps", 6))
+    _phase("OBSERVE", f"M40-Observer: '{goal[:60]}...'")
+    result = observe_display(goal=goal, max_steps=max_steps)
+    # Aggiorna eval_result se l'observer riporta successo con alta confidenza
+    if result.get("success_hint"):
+        sess.eval_result = {
+            "success":     True,
+            "reason":      result.get("reason", ""),
+            "pipeline":    "observe_display/m40_observer",
+            "suggestions": "",
+        }
+    return result
+
+
 def _describe_scene_tool(args: dict, sess: _Session) -> dict:
     from agent.occhio.describe import describe_scene
     frame_paths = args.get("frame_paths", sess.frame_paths)
@@ -1427,6 +1449,7 @@ _REGISTRY = {
     "detect_motion":          _detect_motion,
     "count_objects":          _count_objects,
     "read_text":              _read_text_tool,
+    "observe_display":        _observe_display_tool,
     "describe_scene":         _describe_scene_tool,
     "evaluate_visual":        _evaluate_visual,
     "evaluate_text":          _evaluate_text,

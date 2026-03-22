@@ -1,6 +1,6 @@
 # TODO — Programmatore di Arduini
 
-> Aggiornato: 2026-03-22
+> Aggiornato: 2026-03-22 (notte)
 
 ---
 
@@ -14,7 +14,20 @@
 
 ---
 
+## ✅ Completati
+
+- [x] **Occhio bionico v2** — `agent/occhio/` modulare: 7 tool composabili (2026-03-22)
+- [x] **Observer sub-agent** — M40 come agente osservatore in mini-ReAct loop; `observe_display` = 1 call da MI50 (2026-03-22)
+- [x] **M40 VisualJudge testuale** — `describe_scene` usa M40 su descrizione testo (no immagini), MI50 vision solo fallback
+- [x] **evaluate_visual più robusto** — serial-first + PIL blob detection + M40 judge + MI50 fallback (2026-03-21/22)
+
+---
+
 ## 🔴 Priorità alta — prossima sessione
+
+- [ ] **Test observe_display su hardware reale** — verificare M40 mini-ReAct loop con ESP32+OLED fisico
+  - Connettere al Pi, caricare qualsiasi sketch con display, chiamare `observe_display(goal="...")`
+  - Controllare che M40 completi il loop in <30s e che `success_hint` sia corretto
 
 - [ ] **Skill library** — indicizzare funzioni Arduino testate come skill riutilizzabili
   - `knowledge/skills.db` con funzioni nominate: `elasticCollision()`, `initOLED()`, `drawBrick()`
@@ -47,9 +60,7 @@
   - Previene context overflow su run lunghe (>30 min)
   - Attualmente i turni vecchi vengono solo troncati
 
-- [ ] **evaluate_visual più robusto** — cerchi 3-4px non rilevabili dalla webcam
-  - Crop + upscale del frame prima di mandare a MI50
-  - O criterio ibrido: serial output primario + visual secondario
+- [x] **evaluate_visual più robusto** — risolto con occhio bionico: serial-first + PIL + M40 + MI50 fallback
 
 - [ ] **vcap_frames automatico** — MI50 attiva webcam senza che il supervisore lo guidi
   - Ora va specificato esplicitamente nel task
