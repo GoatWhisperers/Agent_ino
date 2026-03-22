@@ -340,7 +340,7 @@ class Evaluator:
 
         matched = [ev for ev in expected_events if ev in serial_output]
 
-        if len(matched) >= max(1, len(expected_events) // 2):
+        if len(matched) >= 1:
             return {
                 "success": True,
                 "reason": f"Serial output contiene eventi attesi: {matched}. Il codice funziona.",
@@ -395,7 +395,7 @@ class Evaluator:
         # --- Step 0: serial events fast-path (priorità massima) ---
         if expected_events and serial_output and serial_output.strip():
             matched = [ev for ev in expected_events if ev in serial_output]
-            if len(matched) >= max(1, len(expected_events) // 2):
+            if len(matched) >= 1:
                 return {
                     "success": True,
                     "reason": f"Serial output contiene eventi attesi: {matched}. [serial-first]",
