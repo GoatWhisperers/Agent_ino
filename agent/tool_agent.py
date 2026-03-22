@@ -69,6 +69,43 @@ def _phase(name: str, detail: str = ""):
     _dash("phase", name=name, detail=detail)
 
 
+def _serial_summary(serial: str, max_chars: int = 600) -> str:
+    """
+    Riassume il serial output per MI50: evita di mostrare solo spam iniziale.
+    Strategia: deduplica righe consecutive identiche + mostra inizio + fine.
+    """
+    if not serial:
+        return ""
+    lines = [l for l in serial.splitlines() if l.strip()]
+    if not lines:
+        return ""
+
+    # Deduplica righe consecutive identiche, sostituendo con "× N"
+    deduped = []
+    i = 0
+    while i < len(lines):
+        count = 1
+        while i + count < len(lines) and lines[i + count] == lines[i]:
+            count += 1
+        if count > 3:
+            deduped.append(f"{lines[i]} [× {count}]")
+        else:
+            deduped.extend(lines[i:i + count])
+        i += count
+
+    # Mostra prime 5 righe deduplicate + ultime 8 righe originali (per vedere eventi recenti)
+    head = deduped[:5]
+    tail_raw = lines[-8:] if len(lines) > 8 else []
+    if tail_raw and deduped[-1:] != tail_raw[-1:]:
+        summary = "\n".join(head)
+        if tail_raw:
+            summary += "\n...\n" + "\n".join(tail_raw)
+    else:
+        summary = "\n".join(deduped)
+
+    return summary[:max_chars]
+
+
 def _frame(path: str, label: str = "agent"):
     _dash("frame", path=path, label=label)
 
@@ -414,7 +451,7 @@ class _ContextManager:
         if self._summary:
             parts.append("COMPLETATI:\n" + "\n".join(self._summary[-2:]))
         if sess.serial:
-            parts.append(f"OUTPUT SERIALE:\n{sess.serial[:400]}")
+            parts.append(f"OUTPUT SERIALE:\n{_serial_summary(sess.serial)}")
         if sess.frame_paths:
             parts.append(f"FRAME WEBCAM: {len(sess.frame_paths)} frame disponibili")
         return "\n\n".join(parts)
@@ -898,7 +935,7 @@ def _upload_and_read(args: dict, sess: _Session) -> dict:
                         f"serial: {len(lines)} righe")
     return {
         "ok":            result.get("success", False),
-        "serial_output": sess.serial[:400],
+        "serial_output": _serial_summary(sess.serial),
         "error":         last_error,
     }
 
