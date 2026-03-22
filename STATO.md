@@ -1,6 +1,6 @@
 # STATO — Programmatore di Arduini
 
-> Ultima modifica: 2026-03-22 (notte — predatore v3 + Conway avviato)
+> Ultima modifica: 2026-03-22 (notte — predatore v3 + Conway v1 analisi + Conway v2 in corso)
 
 ---
 
@@ -58,11 +58,37 @@ bash agent/start_servers.sh   # avvia MI50 + M40 + controlla VRAM
 
 **Lezione**: `docs/lezione_predatore_v3.md` ✅
 
-### Task Conway Game of Life: IN CORSO 🔄
+### Task Conway Game of Life v1: FALLITO ❌ (bug M40 + bug valutazione MI50)
 
-**Run dir**: `logs/runs/20260322_014931_Conway_Game_of_Life...`
-**Avviato**: 01:49, MI50 in planning
-**Bit-packing**: grid uint8_t[64][16] (1024 byte vs 8192 byte bool[][])
+**Run dir**: `logs/runs/20260322_014931_Conway_Game_of_Life_su_display_OLED_SSD1`
+
+**Risultato**: compile OK, upload OK, evaluate_visual: M40 success=True. Ma MI50 in done phase: {success:false} perché vede GEN:229 ALIVE:204 × 40019 nel serial.
+
+**Bug M40 nel codice generato** (tutti aggiunti a KB + SYSTEM_FUNCTION):
+| Bug | Fix |
+|-----|-----|
+| Double `swapGrids()` (in computeNextGeneration + in loop) | swap SOLO in loop(), computeNextGeneration NON chiama swap |
+| Bit packing errato in `initRandomGrid()` (x%BITMAP_COLS, x/BITMAP_COLS) | colonna=x/8, bit=x%8 — usare helper getCell/setCell |
+| `checkStability()` usa `7-(x%8)` invece di `x%8` | usare getCell() helper |
+| `gridX = y*BITMAP_COLS+bitCol` sbagliato in computeNextGeneration | iterate su for(y) for(x) con getCell(x,y) |
+| Serial spam: printStatus() senza millis() check causa 4000 righe/sec | timer millis() in loop(), non dentro printStatus() |
+
+**Bug sistemici pipeline scoperti** (tutti fixati):
+| Bug | Fix |
+|-----|-----|
+| MI50 in done phase vede serial raw (8 righe identiche) → falso negativo | `_anchor_done` usa `_serial_summary()` + mostra `eval_result` esplicito |
+| KB lessons aggiunte a SQLite ma non a ChromaDB | `db.add_lesson()` ora chiama `index_lesson()` automaticamente |
+| M40 patcher non vede KB lessons rilevanti | `_patch_code` inietta lessons da SQLite fallback |
+| `_anchor_compiling` senza lessons KB | KB lessons iniettate nel compiling anchor |
+
+**Lezione**: `docs/lezione_conway_v1.md` ✅
+
+### Task Conway Game of Life v2: IN CORSO 🔄
+
+**Run dir**: `logs/runs/20260322_024218_Conway_s_Game_of_Life_su_OLED_SSD1306_12`
+**Avviato**: 02:42, MI50 in planning
+**Task description**: completa con helper getCell/setCell, regole swap, bit packing, serial throttle
+**Stato attuale**: step 2 — MI50 plan_functions in corso (streaming)
 
 ---
 

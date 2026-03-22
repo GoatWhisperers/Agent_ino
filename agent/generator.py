@@ -87,7 +87,9 @@ REGOLE CODICE:
 - BOIDS/RESPAWN: funzione respawnPrey(int i) con indice esplicito, MAI spawnPrey() con nextPreyId ciclico
 - SERIAL: ogni messaggio multi-campo deve terminare con Serial.println(), mai Serial.print() — altrimenti messaggi si concatenano
 - CONWAY/BIT-GRID: bit packing SEMPRE con colonna=x/8 e bit=x%8 — MAI x%BITMAP_COLS o x/BITMAP_COLS (produce coordinate errate)
-  Usare helper: bool getCell(grid,x,y){return (grid[y][x/8]>>(x%8))&1;} void setCell(grid,x,y,v){if(v)grid[y][x/8]|=(1<<(x%8)); else grid[y][x/8]&=~(1<<(x%8));}
+  Usare helper: bool getCell(uint8_t grid[][16],int x,int y){return (grid[y][x/8]>>(x%8))&1;}
+               void setCell(uint8_t grid[][16],int x,int y,bool v){if(v)grid[y][x/8]|=(1<<(x%8)); else grid[y][x/8]&=~(1<<(x%8));}
+  CRITICO: parametro DEVE essere uint8_t grid[][16] (2D array), MAI uint8_t* grid (1D pointer) — altrimenti grid[y][x] non compila
 - CONWAY/SWAP: swapGrids() va chiamato UNA SOLA VOLTA per frame in loop() — computeNextGeneration() NON deve chiamarlo (altrimenti grid oscilla)
 - CONWAY/SERIAL: timer millis() per Serial.print in loop() con variabile lastSerialTime, NON dentro printStatus() che fa return early senza aggiornare il timer
 - CONWAY/COMPUTE: iterare su for(y) for(x) con x in 0..GRID_W, non su for(bitCol) for(x) — gridX = y*BITMAP_COLS+bitCol è SBAGLIATO

@@ -182,6 +182,9 @@ def fix_known_includes(code: str) -> str:
     # 2. dist() chiamato senza essere definito — aggiunge helper globale
     if re.search(r"\bdist\s*\(", code) and "float dist(" not in code:
         code = _fix_dist_function(code)
+    # 3. uint8_t* grid (1D pointer) usato come 2D array — converte a uint8_t grid[][16]
+    # M40 scrive uint8_t* grid in funzioni che poi fanno grid[y][x] — non compila
+    code = _fix_uint8_grid_pointer(code)
     return code
 
 
@@ -343,6 +346,30 @@ def _fix_drawCircle_float(code: str) -> str:
     return code
 
 
+def _fix_uint8_grid_pointer(code: str) -> str:
+    """
+    Fix: M40 scrive uint8_t* grid come parametro ma poi usa grid[y][x] (2D array access).
+    Converte le firme da uint8_t* grid a uint8_t grid[][16] per array bit-packed 128x64.
+    Applica anche alle forward declarations.
+
+    Esempio:
+      bool getCell(uint8_t* grid, int x, int y)  →  bool getCell(uint8_t grid[][16], int x, int y)
+    """
+    # Converti solo se c'è accesso 2D nell'implementazione (grid[y][x])
+    # Pattern: (tipo_ritorno) nome_funz(... uint8_t* grid ...) { ... grid[y][x] ... }
+    if "uint8_t* grid" not in code:
+        return code
+
+    # Verifica che ci sia accesso 2D (grid[...][...]) per evitare false conversioni
+    if not re.search(r"\bgrid\s*\[\s*\w+\s*\]\s*\[\s*\w+\s*\]", code):
+        return code
+
+    # Sostituisce uint8_t* grid con uint8_t grid[][16] nelle firme di funzione
+    # Sia nelle definizioni che nelle forward declarations
+    code = re.sub(r"\buint8_t\s*\*\s*grid\b", "uint8_t grid[][16]", code)
+    return code
+
+
 # Mappa: pattern nel messaggio di errore → funzione di fix
 _API_ERROR_FIXES = [
     ("has no member named 'textWidth'",          _fix_getTextBounds_call),
@@ -352,6 +379,7 @@ _API_ERROR_FIXES = [
     ("'setupPhysics' was not declared",           _fix_setupPhysics_call),
     ("no matching function for call to 'Adafruit_SSD1306::drawCircle", _fix_drawCircle_float),
     ("no matching function for call to 'Adafruit_SSD1306::fillCircle", _fix_drawCircle_float),
+    ("cannot convert 'uint8_t (*)[",                                   _fix_uint8_grid_pointer),
 ]
 
 
