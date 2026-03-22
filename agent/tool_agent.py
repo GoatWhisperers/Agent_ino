@@ -137,6 +137,7 @@ FLUSSO (un passo alla volta, aspetta il risultato prima di procedere):
   6. upload_and_read           ← se il messaggio dice "pronto per upload", chiama QUESTO
   7. OBBLIGATORIO se il task usa OLED/display: grab_frames → evaluate_visual
      ⚠ NON saltare evaluate_visual per task display — serve vedere il risultato con gli occhi
+     evaluate_visual args: {"expected_events": ["GEN:", "ALIVE:", "HIT", ecc.]} — se serial contiene questi → success immediato (serial-first)
      ALTRIMENTI (solo LED, solo seriale, nessun display): evaluate_text
   8. save_to_kb
   9. {"done":true,...}
@@ -236,6 +237,7 @@ class _Session:
         self.lessons_context = ""   # lessons dalla KB, iniettate in plan_task e plan_functions
         self.phase = self.PHASE_PLANNING
         self.plan_result = {}       # output di plan_task, usato nell'anchor generating
+        self.eval_result = {}       # risultato evaluate_visual/evaluate_text — usato in _anchor_done
         self.logger: RunLogger = None  # impostato da run()
 
     def set_phase(self, phase: str):
@@ -277,6 +279,7 @@ class _Session:
             "lessons_context":  self.lessons_context,
             "phase":            self.phase,
             "plan_result":      self.plan_result,
+            "eval_result":      self.eval_result,
             "nb":               nb_data,
         }
 
@@ -293,6 +296,7 @@ class _Session:
         s.lessons_context  = d.get("lessons_context", "")
         s.phase            = d.get("phase", cls.PHASE_PLANNING)
         s.plan_result      = d.get("plan_result", {})
+        s.eval_result      = d.get("eval_result", {})
         # Ricrea Notebook dal checkpoint se salvato
         nb_data = d.get("nb")
         if nb_data:
@@ -425,6 +429,23 @@ class _ContextManager:
             relevant = self._extract_relevant_code(sess)
             if relevant:
                 parts.append(f"CODICE (sezioni con errori):\n```cpp\n{relevant}\n```")
+        # Inietta lezioni KB rilevanti (dal contesto di sessione o ricerca fresca)
+        lessons_hint = sess.lessons_context
+        if not lessons_hint and sess.errors:
+            try:
+                error_text = " ".join(
+                    (e if isinstance(e, str) else e.get("message", ""))
+                    for e in sess.errors[:3]
+                )
+                from knowledge.db import search_lessons as db_lessons
+                lessons = db_lessons(f"{sess.task[:60]} {error_text[:150]}", limit=2)
+                if lessons:
+                    hints = [l.get('lesson', '')[:120] for l in lessons]
+                    lessons_hint = "\n".join(f"- {h}" for h in hints if h)
+            except Exception:
+                pass
+        if lessons_hint:
+            parts.append(f"LEZIONI KB (considera queste soluzioni):\n{lessons_hint[:400]}")
         return "\n\n".join(parts)
 
     def _anchor_uploading(self, sess: _Session) -> str:
@@ -460,18 +481,22 @@ class _ContextManager:
         """Fase done: valutazione completata, salva in KB e chiudi."""
         serial_hint = ""
         if sess.serial:
-            # Mostra le ultime righe del seriale (più informative delle prime)
-            lines = [l for l in sess.serial.splitlines() if l.strip()]
-            tail = "\n".join(lines[-8:]) if lines else ""
-            if tail:
-                serial_hint = f"\nOUTPUT SERIALE (ultime righe):\n{tail}"
+            serial_hint = f"\nOUTPUT SERIALE (riassunto):\n{_serial_summary(sess.serial, max_chars=400)}"
+
+        eval_hint = ""
+        if sess.eval_result:
+            ev_success = sess.eval_result.get("success", "?")
+            ev_reason = sess.eval_result.get("reason", "")
+            ev_pipeline = sess.eval_result.get("pipeline", "")
+            eval_hint = f"\nVALUTAZIONE: success={ev_success} [{ev_pipeline}] — {ev_reason[:120]}"
 
         parts = [
             f"TASK: {sess.task[:80]}\nBOARD: {sess.fqbn}\n"
-            f"STATO: valutazione completata.{serial_hint}\n"
+            f"STATO: valutazione completata.{eval_hint}{serial_hint}\n"
             f"ISTRUZIONE CRITICA: chiama save_to_kb per salvare i pattern appresi, "
             f"poi chiudi con {{\"done\": true}}. "
-            f"NON richiamare compile, patch_code, upload_and_read o evaluate_*."
+            f"NON richiamare compile, patch_code, upload_and_read o evaluate_*. "
+            f"La valutazione è già stata completata — non rivalutare."
         ]
         return "\n\n".join(parts)
 
@@ -784,6 +809,29 @@ def _generate_all_functions(args: dict, sess: _Session) -> dict:
         sess.logger.save_code(code, label="generated")
         sess.logger.log(f"generate_all_functions: {len(code.splitlines())} righe totali")
 
+    # Rileva stub/codice incompleto nel codice generato
+    _STUB_PATTERNS = [
+        r"//\s*TODO", r"//\s*[Ii]mplement", r"//\s*[Aa]dd\s+logic",
+        r"//\s*[Ii]nsert\s+code", r"//\s*[Ff]ill\s+in",
+        r"//\s*[Pp]laceholder", r"//\s*[Ss]tub",
+    ]
+    stub_warnings = []
+    for pat in _STUB_PATTERNS:
+        matches = re.findall(pat, code)
+        if matches:
+            stub_warnings.append(f"{pat}: {len(matches)} occorrenze")
+    if stub_warnings:
+        if sess.logger:
+            sess.logger.log(f"[WARN STUB] codice generato ha pattern incompleti: {stub_warnings}")
+        return {
+            "ok":          True,
+            "generated":   list(results.keys()),
+            "errors":      errors,
+            "total_lines": len(code.splitlines()),
+            "warning_stubs": f"Codice generato ha commenti stub/incompleti: {stub_warnings}. "
+                             "Verifica che il codice sia completo prima di compilare.",
+        }
+
     return {
         "ok":          True,
         "generated":   list(results.keys()),
@@ -854,7 +902,37 @@ def _patch_code(args: dict, sess: _Session) -> dict:
     original_code = sess.code
     original_lines = len(original_code.splitlines())
 
-    result = gen.patch_code(code=original_code, errors=errors, analysis=analysis)
+    # Cerca lezioni KB rilevanti per gli errori di compilazione
+    # e le inietta nel contesto del patcher M40
+    kb_lessons_for_patch = ""
+    try:
+        error_text = " ".join(
+            (e if isinstance(e, str) else e.get("message", ""))
+            for e in (errors or [])
+        )
+        query = f"{sess.task[:80]} {error_text[:200]}"
+        lessons = []
+        try:
+            from knowledge.semantic import search_lessons as sem_lessons
+            lessons = sem_lessons(query, n=3)
+        except Exception:
+            pass
+        if not lessons:
+            # Fallback: keyword search in SQLite (trova anche lezioni non ancora in ChromaDB)
+            from knowledge.db import search_lessons as db_lessons
+            lessons = db_lessons(query, limit=3)
+        if lessons:
+            parts = [f"- {l.get('lesson', l.get('description', ''))}" for l in lessons[:3]]
+            kb_lessons_for_patch = "\n".join(parts)
+            if sess.logger:
+                sess.logger.log(f"[PATCH] KB lessons iniettate ({len(lessons)}): {kb_lessons_for_patch[:200]}")
+    except Exception:
+        pass
+
+    result = gen.patch_code(
+        code=original_code, errors=errors, analysis=analysis,
+        lessons=kb_lessons_for_patch,
+    )
     patched_code = result["code"]
     patched_lines = len(patched_code.splitlines())
 
@@ -1006,6 +1084,11 @@ def _evaluate_visual(args: dict, sess: _Session) -> dict:
         sess.logger.save_json(result, "result")
         sess.logger.log(f"evaluate_visual: success={result['success']} "
                         f"pipeline={result.get('pipeline','?')} — {result['reason'][:80]}")
+    sess.eval_result = {
+        "success": result["success"],
+        "reason": result["reason"],
+        "pipeline": result.get("pipeline", "opencv+m40"),
+    }
     sess.set_phase(_Session.PHASE_DONE)
     return {
         "success":     result["success"],
@@ -1023,6 +1106,11 @@ def _evaluate_text(args: dict, sess: _Session) -> dict:
     if sess.logger:
         sess.logger.save_json(result, "result")
         sess.logger.log(f"evaluate_text: success={result['success']} — {result['reason'][:80]}")
+    sess.eval_result = {
+        "success": result["success"],
+        "reason": result["reason"],
+        "pipeline": "evaluate_text",
+    }
     sess.set_phase(_Session.PHASE_DONE)
     return {
         "success":     result["success"],

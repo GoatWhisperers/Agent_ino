@@ -86,6 +86,11 @@ REGOLE CODICE:
 - BOIDS/RESPAWN: timer respawn per-preda (campo respawnTime in struct Boid), MAI timer globale lastRespawnTime condiviso
 - BOIDS/RESPAWN: funzione respawnPrey(int i) con indice esplicito, MAI spawnPrey() con nextPreyId ciclico
 - SERIAL: ogni messaggio multi-campo deve terminare con Serial.println(), mai Serial.print() — altrimenti messaggi si concatenano
+- CONWAY/BIT-GRID: bit packing SEMPRE con colonna=x/8 e bit=x%8 — MAI x%BITMAP_COLS o x/BITMAP_COLS (produce coordinate errate)
+  Usare helper: bool getCell(grid,x,y){return (grid[y][x/8]>>(x%8))&1;} void setCell(grid,x,y,v){if(v)grid[y][x/8]|=(1<<(x%8)); else grid[y][x/8]&=~(1<<(x%8));}
+- CONWAY/SWAP: swapGrids() va chiamato UNA SOLA VOLTA per frame in loop() — computeNextGeneration() NON deve chiamarlo (altrimenti grid oscilla)
+- CONWAY/SERIAL: timer millis() per Serial.print in loop() con variabile lastSerialTime, NON dentro printStatus() che fa return early senza aggiornare il timer
+- CONWAY/COMPUTE: iterare su for(y) for(x) con x in 0..GRID_W, non su for(bitCol) for(x) — gridX = y*BITMAP_COLS+bitCol è SBAGLIATO
 """
 
 SYSTEM_PROMPT = """Sei un esperto programmatore Arduino.
@@ -247,12 +252,14 @@ class Generator:
         code: str,
         errors: list[dict],
         analysis: str = "",
+        lessons: str = "",
     ) -> dict:
         """
         Corregge il codice dato gli errori del compilatore.
 
         errors: lista di {"line": int, "type": str, "message": str}
         analysis: spiegazione degli errori dall'orchestratore (opzionale)
+        lessons: lezioni dalla KB rilevanti per gli errori (opzionale)
         ritorna: {"code": str, "thinking": str, "raw": str}
         """
         error_lines = []
@@ -275,6 +282,8 @@ class Generator:
             "=== ERRORI DI COMPILAZIONE ===",
             errors_text,
         ]
+        if lessons:
+            user_content_parts += ["", "=== LEZIONI DALLA KB (applica queste soluzioni) ===", lessons]
         if analysis:
             user_content_parts += ["", "=== ANALISI ===", analysis]
 

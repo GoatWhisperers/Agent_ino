@@ -375,7 +375,7 @@ def add_lesson(
     hardware_quirk: str = None,
     board: str = "",
 ) -> str:
-    """Aggiunge una lezione appresa. Ritorna l'id."""
+    """Aggiunge una lezione appresa. Ritorna l'id. Sincronizza anche in ChromaDB."""
     lid = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
     conn = _get_conn()
@@ -392,6 +392,19 @@ def add_lesson(
         conn.commit()
     finally:
         conn.close()
+    # Sincronizza in ChromaDB per la ricerca semantica
+    try:
+        from knowledge.semantic import index_lesson
+        index_lesson(
+            lid=lid,
+            task_type=task_type,
+            lesson=lesson,
+            spec_hint=spec_hint,
+            hardware_quirk=hardware_quirk,
+            board=board,
+        )
+    except Exception:
+        pass  # ChromaDB opzionale — SQLite è fonte di verità
     return lid
 
 
