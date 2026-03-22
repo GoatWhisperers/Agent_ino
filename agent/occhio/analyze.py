@@ -71,11 +71,20 @@ def _extract_blobs(img_path: str) -> list[dict]:
 
     try:
         img = Image.open(img_path).convert("L")
-        # Crop centro 380×288 per escludere bordi webcam
-        w, h = img.size
-        mx, my = max(0, (w - 380) // 2), max(0, (h - 288) // 2)
-        if w > 380 and h > 288:
-            img = img.crop((mx, my, mx + 380, my + 288))
+        arr_full = np.array(img)
+        # Crop adattivo: trova bbox dei pixel luminosi e croppa intorno
+        # Se non ci sono pixel luminosi, usa il frame intero
+        bright_mask = arr_full > THRESHOLD_OLED
+        bright_rows = np.where(bright_mask.any(axis=1))[0]
+        bright_cols = np.where(bright_mask.any(axis=0))[0]
+        if len(bright_rows) > 10 and len(bright_cols) > 10:
+            pad = 20  # margine attorno al display
+            y0 = max(0, int(bright_rows.min()) - pad)
+            y1 = min(arr_full.shape[0], int(bright_rows.max()) + pad)
+            x0 = max(0, int(bright_cols.min()) - pad)
+            x1 = min(arr_full.shape[1], int(bright_cols.max()) + pad)
+            img = img.crop((x0, y0, x1, y1))
+        # altrimenti usa frame intero (nessun crop)
 
         arr = np.array(img)
         binary = (arr > THRESHOLD_OLED).astype(np.uint8)
@@ -105,6 +114,7 @@ def _extract_blobs(img_path: str) -> list[dict]:
             blobs.append({
                 "cx": cx, "cy": cy, "area": area, "kind": kind,
                 "bbox": [x_min, y_min, x_max, y_max],
+                "crop_size": list(arr.shape),  # [h, w] del crop usato
             })
 
         return blobs
@@ -290,8 +300,9 @@ def count_objects(frame_paths: list[str]) -> dict:
 
 def _position_words(blobs: list[dict]) -> list[str]:
     """Converte coordinate in parole posizionali (alto/centro/basso, sinistra/centro/destra)."""
-    # Assume display crop ~380×288
-    W, H = 380, 288
+    # Usa dimensioni reali del crop (salvate nel blob) se disponibili
+    W = blobs[0].get("crop_size", [288, 380])[1] if blobs else 380
+    H = blobs[0].get("crop_size", [288, 380])[0] if blobs else 288
     words = []
     for b in blobs[:3]:  # Max 3 descrizioni per evitare output troppo lungo
         cx, cy = b["cx"], b["cy"]

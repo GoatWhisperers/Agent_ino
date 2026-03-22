@@ -50,7 +50,11 @@ HAI ACCESSO A QUESTI TOOL (chiamali in sequenza, uno alla volta):
 
   count_objects(frame_paths)
     → {"total": int, "dots": [...], "segments": [...], "blocks": int, "description": str}
-    Conta e localizza oggetti. dots=punti piccoli, segments=forme medie, blocks=artefatti(ignora).
+    Conta e localizza oggetti. dots=punti piccoli (≤16px), segments=forme medie (17-200px).
+    INTERPRETAZIONE BLOCKS (blob >200px):
+      - Se white_ratio (da check_display_on) < 0.02: blocks = riflesso ambientale → ignora.
+      - Se white_ratio >= 0.02: blocks = display che mostra grafica densa (rettangoli, bordi, pattern)
+        → conta come CONTENUTO VISIVO, non come artefatto. success_hint dipende dal goal.
 
   read_text(frame_paths)
     → {"text_found": bool, "text": str, "confidence": str}
@@ -195,6 +199,7 @@ def observe_display(goal: str, max_steps: int = 6) -> dict:
 
     # Stato condiviso tra i tool del mini-loop
     frame_paths: list[str] = []
+    last_white_ratio: float = 0.0
 
     # Contesto M40-Observer (isolato dal contesto principale MI50)
     messages = [
@@ -249,10 +254,21 @@ def observe_display(goal: str, max_steps: int = 6) -> dict:
         tool_result = _call_vision_tool(tool_name, tool_args, frame_paths)
         log(f"  ← {json.dumps(tool_result, ensure_ascii=False, default=str)[:120]}")
 
-        # Aggiungi risultato al contesto M40-Observer
+        # Tieni traccia di white_ratio per il contesto di count_objects
+        if tool_name == "check_display_on":
+            last_white_ratio = float(tool_result.get("white_ratio", 0.0))
+
+        # Costruisci messaggio risultato, con hint white_ratio per count_objects
+        extra = ""
+        if tool_name == "count_objects" and last_white_ratio >= 0.02:
+            extra = (f"\nNOTA: white_ratio={last_white_ratio:.3f} (>{0.02}) — "
+                     f"i blocks rilevati sono probabilmente contenuto visivo del display "
+                     f"(grafica densa), non riflessi ambientali.")
+
         result_msg = (
             f"Risultato {tool_name}:\n"
-            f"{json.dumps(tool_result, ensure_ascii=False, default=str, indent=2)}\n\n"
+            f"{json.dumps(tool_result, ensure_ascii=False, default=str, indent=2)}"
+            f"{extra}\n\n"
             f"Cosa fai adesso? Ricorda: max {max_steps - steps_taken} passi rimasti "
             f"(incluso il report finale)."
         )
