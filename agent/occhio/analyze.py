@@ -104,9 +104,14 @@ def _extract_blobs(img_path: str) -> list[dict]:
             x_min, x_max = int(xs.min()), int(xs.max())
             y_min, y_max = int(ys.min()), int(ys.max())
 
+            # Soglie calibrate per webcam CSI a ~30cm dall'OLED:
+            # OLED pixel 1px → webcam ~3px → area ~9px   → dot
+            # OLED cerchio r=3px → webcam r=9px → area ~250px → segment
+            # OLED cerchio r=4px → webcam r=12px → area ~450px → segment
+            # Riflessione ambientale o pattern pieno → area >2000px → block
             if area <= 16:
                 kind = "dot"
-            elif area <= 200:
+            elif area <= 1500:
                 kind = "segment"
             else:
                 kind = "block"

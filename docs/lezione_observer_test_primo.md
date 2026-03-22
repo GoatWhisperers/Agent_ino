@@ -255,3 +255,135 @@ contenuto visivo del display (grafica densa), non riflessi ambientali.
 *Condotto: 2026-03-22 ~19:00–20:00 UTC*
 *Sketch finale: schermo_pieno (bordo+croce+angoli)*
 *4 bug trovati e fixati durante il test live*
+
+---
+
+## Test movimento — 5 palline rimbalzanti ✅
+
+### Sketch
+
+```cpp
+// 5 palline con fisica semplice, delay=50ms (~20 fps)
+struct Ball { float x, y, vx, vy; int r; };
+Ball balls[5] = {
+  {20,15, 2.1, 1.7, 4}, {60,30,-1.8, 2.3, 3},
+  {100,10,1.5,-1.9, 4}, {40,50,-2.3,-1.5, 3}, {80,40, 1.9, 2.1, 4}
+};
+// Per ogni frame: aggiorna posizione, rimbalza sui bordi, drawCircle
+```
+
+### Frame catturati (t=0s, t=1s, t=2s)
+
+**Frame 1** — 5 palline separate:
+
+![balls frame 1](observer_test_2026-03-22/balls_final_01.jpg)
+
+**Frame 2** — le palline si sono spostate:
+
+![balls frame 2](observer_test_2026-03-22/balls_final_02.jpg)
+
+**Frame 3** — posizioni ulteriormente cambiate:
+
+![balls frame 3](observer_test_2026-03-22/balls_final_03.jpg)
+
+Il movimento è chiaramente visibile tra i frame. Le palline si raggruppano e si separano durante l'animazione.
+
+### Log mini-loop (5 passi)
+
+```
+[Step 1/6] check_display_on()
+  ← {on: true, white_ratio: 0.0085}
+
+[Step 2/6] capture_frames(n=3, interval_ms=1000)
+  ← {ok: true, n_frames: 3}
+
+[Step 3/6] detect_motion(frame_paths)
+  ← {motion_detected: true, mean_diff: 5.26,
+     centroid_displacement: 83.2px, confidence: "high"}
+
+[Step 4/6] count_objects(frame_paths)
+  ← {total: 5, dots: 1, segments: 4, blocks: 0}
+     segments: [{cx:152,cy:33,area:947}, {cx:32,cy:49,area:541},
+                {cx:164,cy:70,area:371}, {cx:219,cy:124,area:655}]
+
+[Step 5/6] → REPORT
+```
+
+### Risultato finale
+
+```json
+{
+  "display_on": true,
+  "objects_total": 5,
+  "motion_detected": true,
+  "motion_confidence": "high",
+  "centroid_displacement": 83.2,
+  "success_hint": true,
+  "reason": "Sono state rilevate 5 palline in movimento, come richiesto dal goal. Il movimento è stato confermato e la confidenza è alta."
+}
+```
+
+**Tempo: 96.6s** | **5 passi** | **success_hint: true ✅**
+
+---
+
+## Fix aggiuntivi scoperti nel test movimento
+
+### Bug 5 — Soglia "block" troppo bassa per palline OLED
+
+Scala fisica: OLED pixel → webcam a ~30cm:
+- 1px OLED → ~3px webcam → area ~9px (dot ✅)
+- cerchio r=3px OLED → r=9px webcam → area ~250px → era "block" ❌
+- cerchio r=4px OLED → r=12px webcam → area ~450px → era "block" ❌
+- riflesso ambientale → area >2000px → block ✅
+
+```python
+# Prima: block > 200px → catturava tutte le palline come "block"
+# Dopo:  block > 1500px → palline classificate correttamente come "segment"
+if area <= 16:    kind = "dot"
+elif area <= 1500: kind = "segment"   # era 200
+else:             kind = "block"
+```
+
+### Bug 6 — max_tokens=300 tronca report con 5+ oggetti
+
+Il report JSON con 5 segmenti (ciascuno cx/cy/area) supera 300 token.
+M40 produceva JSON incompleto → parser falliva → fallback.
+
+```python
+# observer.py _m40_step()
+# Prima: max_tokens=300
+# Dopo:  max_tokens=600
+result = client.generate(messages, max_tokens=600, label="M40→Observer")
+```
+
+---
+
+## Riepilogo completo di tutti i fix
+
+| # | Bug | Fix | File |
+|---|-----|-----|------|
+| 1 | Soglia ON troppo alta per display sparsi | `0.003 → 0.001` | `capture.py` |
+| 2 | Parser regex non gestisce JSON annidato >2 livelli | `raw_decode` + filtro chiavi | `observer.py` |
+| 3 | Crop fisso taglia display fuori centro | Crop adattivo su bbox pixel luminosi | `analyze.py` |
+| 4 | M40 ignora blocks con white_ratio alto | Hint contestuale + system prompt | `observer.py` |
+| 5 | Soglia block troppo bassa per palline OLED | `200 → 1500px` | `analyze.py` |
+| 6 | max_tokens=300 tronca report con 5+ oggetti | `300 → 600` | `observer.py` |
+
+---
+
+## Nota hardware futura
+
+**LED di illuminazione controllabili da GPIO Raspberry Pi** — idea emersa durante i test.
+I riflessi ambientali (blob rosso a destra nei frame) inquinano l'analisi.
+LED IR o LED bianchi puntati sull'OLED + GPIO Raspberry Pi:
+- Accendere illuminazione prima della cattura
+- Spegnere dopo
+- Elimina quasi completamente i riflessi ambientali
+- Migliora white_ratio di 5-10× e riduce falsi positivi blocks=1
+
+---
+
+*Tutti i test condotti: 2026-03-22 ~19:00–20:30 UTC*
+*6 bug trovati e fixati durante i test live*
+*Observer funzionante per: display statico, display pieno, oggetti in movimento*

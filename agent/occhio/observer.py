@@ -51,10 +51,11 @@ HAI ACCESSO A QUESTI TOOL (chiamali in sequenza, uno alla volta):
   count_objects(frame_paths)
     → {"total": int, "dots": [...], "segments": [...], "blocks": int, "description": str}
     Conta e localizza oggetti. dots=punti piccoli (≤16px), segments=forme medie (17-200px).
-    INTERPRETAZIONE BLOCKS (blob >200px):
-      - Se white_ratio (da check_display_on) < 0.02: blocks = riflesso ambientale → ignora.
-      - Se white_ratio >= 0.02: blocks = display che mostra grafica densa (rettangoli, bordi, pattern)
-        → conta come CONTENUTO VISIVO, non come artefatto. success_hint dipende dal goal.
+    INTERPRETAZIONE BLOCKS (blob >1500px):
+      - white_ratio < 0.02 E blocks=1: probabile riflesso ambientale → ignora.
+      - white_ratio >= 0.02 E blocks=1: display con grafica densa (rettangoli pieni) → contenuto visivo.
+      - blocks > 1: quasi certamente oggetti distinti sul display (palline, cerchi, elementi grafici).
+        Se motion_detected=true e blocks=N con N≈numero atteso nel goal → success_hint=true.
 
   read_text(frame_paths)
     → {"text_found": bool, "text": str, "confidence": str}
@@ -162,7 +163,7 @@ def _m40_step(messages: list[dict]) -> str:
     """Chiama M40 per un singolo passo del mini-loop."""
     from agent.m40_client import M40Client
     client = M40Client()
-    result = client.generate(messages, max_tokens=300, label="M40→Observer")
+    result = client.generate(messages, max_tokens=600, label="M40→Observer")
     return result.get("response", result.get("raw", ""))
 
 
