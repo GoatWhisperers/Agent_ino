@@ -274,21 +274,66 @@ def _fix_dist_function(code: str) -> str:
     # Inserisce dopo gli #include / #define iniziali, prima della prima funzione/struct
     if "float dist(" in code or "inline float dist(" in code:
         return code  # già definita
-    # Trova fine degli include/define
-    insert_pos = 0
-    for m in re.finditer(r"^(#include|#define|//|/\*)", code, re.MULTILINE):
-        insert_pos = m.end()
-    # Vai a fine della riga corrente
-    end_of_line = code.find("\n", insert_pos)
-    if end_of_line == -1:
-        return code + helper
-    return code[:end_of_line + 1] + helper + code[end_of_line + 1:]
+    # Trova l'ultima riga #include / #define (non commenti //
+    # per evitare di inserire dentro le funzioni)
+    insert_line_end = 0
+    for m in re.finditer(r"^(#include|#define)\b", code, re.MULTILINE):
+        eol = code.find("\n", m.start())
+        if eol > insert_line_end:
+            insert_line_end = eol
+    if insert_line_end == 0:
+        # Nessun include/define trovato — inserisce all'inizio
+        return helper + "\n" + code
+    return code[:insert_line_end + 1] + helper + code[insert_line_end + 1:]
 
 
 def _fix_setupPhysics_call(code: str) -> str:
     """Rimuove chiamata a setupPhysics() se non definita — M40 la inventa a volte."""
-    # Rimuove la riga con setupPhysics()
     code = re.sub(r"^\s*setupPhysics\s*\(\s*\)\s*;\s*\n", "", code, flags=re.MULTILINE)
+    return code
+
+
+def _fix_drawCircle_float(code: str) -> str:
+    """
+    Aggiunge cast (int) agli argomenti float di drawCircle/fillCircle/drawCircle.
+    Errore tipico: drawCircle(predator.x, predator.y, 4, SSD1306_WHITE, 0)
+      → drawCircle(float&, float&, int, int, int) — no match
+    Fix: cast x,y a int; rimuove 5° argomento (fillCircle ha 4 arg, non 5).
+    """
+    # Caso 1: drawCircle(floatX, floatY, radius, color, extra) — 5 args
+    # Rimuove il 5° argomento e casta x,y
+    def _replace_5arg(m):
+        fname = m.group(1)
+        x_arg = m.group(2).strip()
+        y_arg = m.group(3).strip()
+        r_arg = m.group(4).strip()
+        color = m.group(5).strip()
+        # Cast x,y a int se sembrano float (contengono '.', o sono variabili non intere)
+        x_cast = f"(int)({x_arg})" if "." not in x_arg else f"(int)({x_arg})"
+        y_cast = f"(int)({y_arg})" if "." not in y_arg else f"(int)({y_arg})"
+        return f"display.{fname}({x_cast}, {y_cast}, {r_arg}, {color})"
+
+    code = re.sub(
+        r"display\.(drawCircle|fillCircle)\s*\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*\d+\s*\)",
+        _replace_5arg,
+        code,
+    )
+
+    # Caso 2: drawCircle(floatX, floatY, radius, color) — 4 args ma x,y sono float vars
+    def _replace_4arg_float(m):
+        fname = m.group(1)
+        x_arg = m.group(2).strip()
+        y_arg = m.group(3).strip()
+        r_arg = m.group(4).strip()
+        color = m.group(5).strip()
+        return f"display.{fname}((int)({x_arg}), (int)({y_arg}), {r_arg}, {color})"
+
+    # Sostituisce solo se x_arg sembra una variabile float (es. predator.x, prey[i].x)
+    code = re.sub(
+        r"display\.(drawCircle|fillCircle)\s*\(\s*([a-z_]\w*(?:\.\w+|\[\w+\]\.\w+)?),\s*([a-z_]\w*(?:\.\w+|\[\w+\]\.\w+)?),\s*([^,]+),\s*(SSD1306_WHITE|SSD1306_BLACK|WHITE|BLACK)\s*\)",
+        _replace_4arg_float,
+        code,
+    )
     return code
 
 
@@ -299,6 +344,8 @@ _API_ERROR_FIXES = [
     ("has no member named '",                     _fix_display_userfunc_calls),
     ("'dist' was not declared",                   _fix_dist_function),
     ("'setupPhysics' was not declared",           _fix_setupPhysics_call),
+    ("no matching function for call to 'Adafruit_SSD1306::drawCircle", _fix_drawCircle_float),
+    ("no matching function for call to 'Adafruit_SSD1306::fillCircle", _fix_drawCircle_float),
 ]
 
 
