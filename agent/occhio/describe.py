@@ -94,7 +94,8 @@ def _m40_judge(description: str) -> dict:
     ]
 
     try:
-        raw = client.chat(messages, max_new_tokens=100)
+        result = client.generate(messages, max_tokens=100, label="M40→VisualJudge")
+        raw = result.get("response", result.get("raw", ""))
     except Exception as e:
         return {"success": False, "reason": f"M40 errore: {e}", "confidence": 0.0}
 
