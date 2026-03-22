@@ -547,7 +547,8 @@ class _ContextManager:
 # ── Checkpoint ────────────────────────────────────────────────────────────────
 
 def _save_checkpoint(sess: _Session, ctx: _ContextManager, step: int):
-    """Salva lo stato completo su disco — permette di riprendere da qui."""
+    """Salva lo stato completo su disco — permette di riprendere da qui.
+    Write atomico: scrive su .tmp poi rinomina per evitare checkpoint corrotti in caso di crash."""
     if sess.logger is None:
         return
     checkpoint = {
@@ -556,9 +557,10 @@ def _save_checkpoint(sess: _Session, ctx: _ContextManager, step: int):
         "sess":      sess.to_dict(),
         "ctx":       ctx.to_dict(),
     }
-    (sess.logger.run_dir / "checkpoint.json").write_text(
-        json.dumps(checkpoint, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    checkpoint_path = sess.logger.run_dir / "checkpoint.json"
+    tmp_path = checkpoint_path.with_suffix(".json.tmp")
+    tmp_path.write_text(json.dumps(checkpoint, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_path.replace(checkpoint_path)  # atomico sullo stesso filesystem
 
 
 # ── Tool implementations ──────────────────────────────────────────────────────
@@ -623,6 +625,27 @@ def _auto_enrich_task(sess: _Session) -> str:
 
 def _plan_task(args: dict, sess: _Session) -> dict:
     from agent.orchestrator import Orchestrator
+
+    # Guard: se siamo già in una fase avanzata, restituiamo il piano già fatto
+    # (evita che MI50 riesegua plan_task a vuoto dopo resume o in fase uploading/evaluating)
+    _NEXT_TOOL = {
+        _Session.PHASE_COMPILING:  "patch_code → compile",
+        _Session.PHASE_UPLOADING:  "upload_and_read",
+        _Session.PHASE_EVALUATING: "grab_frames → evaluate_visual",
+        _Session.PHASE_DONE:       "save_to_kb → {done:true}",
+    }
+    if sess.phase not in (_Session.PHASE_PLANNING, _Session.PHASE_GENERATING):
+        if sess.plan_result:
+            next_hint = _NEXT_TOOL.get(sess.phase, "il tool appropriato per la fase corrente")
+            return {
+                "skipped": True,
+                "reason": (
+                    f"plan_task già eseguito. Fase corrente: {sess.phase}. "
+                    f"Chiama ADESSO: {next_hint}. NON chiamare plan_task di nuovo."
+                ),
+                **{k: v for k, v in sess.plan_result.items()},
+            }
+
     context = args.get("context", "")
 
     # Arricchisce il contesto con lessons dalla KB (salvate in sessione per plan_functions)
@@ -1137,10 +1160,13 @@ def _save_to_kb(args: dict, sess: _Session) -> dict:
     _phase("LEARN", "salva snippet nel DB")
     try:
         learner = Learner()
-        # iterations: lista errori/fix dai cicli di compilazione
+        # iterations: lista errori/fix dai cicli di compilazione (da logger._compile_errors)
+        raw_iters = []
+        if sess.logger and hasattr(sess.logger, "_compile_errors"):
+            raw_iters = sess.logger._compile_errors
         iterations = [
             {"errors": e.get("errors", []), "fix": "patch_code"}
-            for e in (sess.compile_errors if hasattr(sess, "compile_errors") else [])
+            for e in raw_iters
         ]
         learner.extract_patterns(
             task=sess.task,
@@ -1449,6 +1475,7 @@ def run(task: str, fqbn: str = "esp32:esp32:esp32", max_steps: int = 30,
     _phase("AGENT START", f"tool agent avviato — {logger.run_dir.name}")
 
     retry_parse = 0
+    _recent_tools: list[str] = []  # loop detection: ultimi tool chiamati
 
     for step in range(start_step, max_steps + 1):
         print(f"\n[ToolAgent] ── Step {step}/{max_steps} [fase: {sess.phase}] ──", flush=True)
@@ -1512,6 +1539,21 @@ def run(task: str, fqbn: str = "esp32:esp32:esp32", max_steps: int = 30,
 
         print(f"[ToolAgent] Result: {result_str[:200]}", flush=True)
         logger.log(f"RESULT: {result_str[:200]}")
+
+        # ── Loop detection ────────────────────────────────────────────────────
+        _recent_tools.append(tool_name)
+        if (len(_recent_tools) >= 3
+                and len(set(_recent_tools[-3:])) == 1
+                and _recent_tools[-1] not in ("_parse_error", "_no_tool")):
+            loop_hint = (
+                f"\n⚠ AVVISO SISTEMA: hai chiamato '{tool_name}' {3} volte consecutive "
+                f"senza avanzare di fase. Devi cambiare approccio: "
+                f"chiama un tool DIVERSO oppure chiudi con "
+                f'{{\"done\": false, \"reason\": \"loop detected\", \"success\": false}}.'
+            )
+            result_str += loop_hint
+            logger.log(f"LOOP DETECTED: {tool_name} × 3 — hint iniettato")
+            _recent_tools.clear()  # reset dopo warning per non spammare
 
         ctx.add_turn(raw_for_ctx, tool_name, result_str)
 

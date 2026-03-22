@@ -9,7 +9,6 @@ sys.path.insert(0, "/home/lele/codex-openai/programmatore_di_arduini")
 
 from agent.mi50_client import MI50Client  # noqa: E402
 from knowledge.db import add_lesson, init_db
-from knowledge.semantic import index_lesson
 
 _LEARN_SYSTEM = """
 Sei un esperto Arduino che analizza run riuscite per estrarre conoscenza riutilizzabile.
@@ -133,19 +132,14 @@ class Learner:
                 if not les.get("lesson"):
                     continue
                 try:
+                    # add_lesson ora chiama index_lesson automaticamente (db.py KB auto-sync)
+                    # Non chiamare index_lesson separatamente per evitare duplicazione in ChromaDB
                     lid = add_lesson(
                         task_type=les.get("task_type", "general"),
                         lesson=les.get("lesson", ""),
                         spec_hint=les.get("spec_hint") or "",
                         hardware_quirk=les.get("hardware_quirk") or "",
                         board="",  # universale — non leghiamo al board specifico
-                    )
-                    index_lesson(
-                        lid=lid,
-                        task_type=les.get("task_type", "general"),
-                        lesson=les.get("lesson", ""),
-                        spec_hint=les.get("spec_hint") or "",
-                        hardware_quirk=les.get("hardware_quirk") or "",
                     )
                     saved_lessons.append(lid)
                 except Exception:
