@@ -1,6 +1,16 @@
 # TODO — Programmatore di Arduini
 
-> Aggiornato: 2026-03-20
+> Aggiornato: 2026-03-22
+
+---
+
+## 🟡 Dashboard — miglioramenti UI (dopo Snake)
+
+- [ ] **Layout**: finestra in alto troppo grande, quelle sotto quasi invisibili — redistribuire spazio
+- [ ] **M40 token stream**: i token emessi da M40 non sono visibili nella dashboard
+- [ ] **Thinking visibile**: reasoning MI50 da mostrare in azzurro, testo normale in bianco
+- [ ] **Pannelli ridimensionabili**: drag handle tra i pannelli
+- [ ] **Scroll testi e immagini**: i contenuti lunghi devono essere scrollabili dentro il pannello
 
 ---
 
