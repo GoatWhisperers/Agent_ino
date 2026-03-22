@@ -1,0 +1,136 @@
+{
+  "_doc": "Vision tools modulari — agent/occhio. Usa per task con OLED/display. Leggi prima check_display_on, poi capture_frames, poi analizza.",
+
+  "quando_usare": {
+    "invece_di_grab_frames_evaluate_visual": "Quando vuoi analisi più precisa: posizione oggetti, rilevamento movimento, testo sul display.",
+    "grab_frames_evaluate_visual": "Ancora valido per task semplici o per compatibilità con vecchio flusso."
+  },
+
+  "flusso_tipico": [
+    "check_display_on                  → se on=false, inutile procedere",
+    "capture_frames n=3 interval_ms=1000 → 3 frame a 1 secondo di distanza",
+    "detect_motion frame_paths=[...]   → c'è movimento?",
+    "count_objects frame_paths=[...]   → quanti oggetti e dove?",
+    "describe_scene frame_paths=[...] goal='...' → giudizio M40 + MI50 fallback"
+  ],
+
+  "tools": {
+    "calibrate_eye": {
+      "scopo": "Trova il preset camera ottimale per il setup fisico attuale. Salva in workspace/eye_calibration.json.",
+      "args": {
+        "target": "string — 'oled' | 'led' | 'general' (default: 'oled')"
+      },
+      "output": {
+        "best_preset": "string — nome preset vincente",
+        "scores": "dict — score per ogni preset",
+        "white_ratio_at_calibration": "float"
+      },
+      "quando": "Una volta per sessione (PREFLIGHT STEP 8) o dopo cambio setup fisico.",
+      "nota": "Richiede ~10s (5 catture). Skip se eye_calibration.json è recente."
+    },
+
+    "capture_frames": {
+      "scopo": "Cattura N frame a intervalli fissi. Il timing è gestito internamente — NON coinvolge MI50 o M40 tra una cattura e l'altra.",
+      "args": {
+        "n": "int — numero frame (default 3, consigliato 2-5)",
+        "interval_ms": "int — ms tra frame (default 1000)"
+      },
+      "output": {
+        "ok": "bool",
+        "frame_paths": "list[str] — path locali JPEG",
+        "n_frames": "int"
+      },
+      "quando": "Sempre, come primo passo dopo check_display_on. Usa il preset da eye_calibration.json automaticamente.",
+      "esempi": [
+        {"n": 1, "interval_ms": 0,    "uso": "screenshot rapido (check, testo)"},
+        {"n": 3, "interval_ms": 1000, "uso": "osservazione 3s (animazione, boids)"},
+        {"n": 5, "interval_ms": 500,  "uso": "animazione veloce 2.5s"},
+        {"n": 2, "interval_ms": 3000, "uso": "verifica cambio di stato in 3s"}
+      ]
+    },
+
+    "check_display_on": {
+      "scopo": "Verifica rapida: il display mostra qualcosa? (binary ON/OFF)",
+      "args": {},
+      "output": {
+        "on": "bool — true se white_ratio > 0.003",
+        "white_ratio": "float — frazione pixel accesi",
+        "preset_used": "string"
+      },
+      "quando": "Come PRIMO check prima di qualsiasi analisi visiva. Se on=false → risparmia tempo.",
+      "costo": "~3-4 secondi (1 frame SSH+SCP)"
+    },
+
+    "detect_motion": {
+      "scopo": "C'è qualcosa che si muove tra i frame?",
+      "args": {
+        "frame_paths": "list[str] — output di capture_frames (minimo 2 frame)"
+      },
+      "output": {
+        "motion_detected": "bool — true se mean_diff > 2.0",
+        "mean_diff": "float — differenza pixel media inter-frame",
+        "centroid_displacement": "float — spostamento medio centroidi (px). Distingue movimento reale da rumore.",
+        "confidence": "string — 'high' | 'medium' | 'low'"
+      },
+      "quando": "Dopo capture_frames con n>=2. Utile per boids, palline, snake (verifica animazione).",
+      "nota": "mean_diff alto può essere riflessi ambientali. centroid_displacement > 3px = movimento reale."
+    },
+
+    "count_objects": {
+      "scopo": "Quanti oggetti distinti ci sono sul display e dove sono?",
+      "args": {
+        "frame_paths": "list[str] — output di capture_frames"
+      },
+      "output": {
+        "total": "int — dot + segment (block esclusi)",
+        "dots": "list[{cx, cy, area}] — punti piccoli ≤16px (pixel singoli, boids)",
+        "segments": "list[{cx, cy, area}] — segmenti 17-200px (snake body, palline)",
+        "blocks": "int — blob >200px (quasi sempre riflessi ambientali, NON contati in total)",
+        "description": "string — descrizione testuale"
+      },
+      "quando": "Per task che richiedono contare oggetti: 'ci sono 5 boids?', 'il serpente è visibile?'",
+      "nota": "cx,cy sono coordinate pixel nel frame webcam (non coordinate OLED). Usa per localizzare, non per misurare distanze OLED."
+    },
+
+    "read_text": {
+      "scopo": "Leggi testo leggibile sul display (score, messaggi, menu).",
+      "args": {
+        "frame_paths": "list[str]"
+      },
+      "output": {
+        "text_found": "bool",
+        "text": "string — testo letto",
+        "confidence": "string — 'high' | 'medium' | 'low'"
+      },
+      "quando": "SOLO per task con testo sul display (score, menu, messaggi). NON usare per task grafici (boids, snake body) — lento e inutile.",
+      "costo": "~30-60s (MI50-vision con context isolato)",
+      "nota": "Context isolato — non inquina il context principale MI50."
+    },
+
+    "describe_scene": {
+      "scopo": "Descrizione libera guidata da un obiettivo. Pipeline: count_objects + detect_motion → M40 VisualJudge → MI50 fallback.",
+      "args": {
+        "frame_paths": "list[str]",
+        "goal": "string — cosa devo vedere? (es. 'almeno 5 palline in movimento')"
+      },
+      "output": {
+        "success_hint": "bool — il goal sembra raggiunto?",
+        "confidence": "float 0.0-1.0",
+        "reason": "string — spiegazione",
+        "pipeline_used": "string — 'm40' | 'mi50'",
+        "objects": "dict — output count_objects",
+        "motion": "dict | null — output detect_motion"
+      },
+      "quando": "Come ULTIMO step di valutazione, quando serve un giudizio complessivo. Non come primo check.",
+      "costo": "M40: ~5-10s. MI50 fallback (solo se confidence < 0.6): ~30-60s.",
+      "nota_autonomia": "Se success_hint=true e confidence>=0.6, il risultato viene salvato in sess.eval_result automaticamente."
+    }
+  },
+
+  "note_importanti": [
+    "capture_frames usa SEMPRE il preset da eye_calibration.json — NON specificare preset manualmente.",
+    "I block in count_objects sono quasi sempre riflessi ambientali — ignorali nel giudizio.",
+    "Il serial output rimane la via più affidabile: se SCORE:/GAMEOVER sono nel serial, usa evaluate_visual con expected_events.",
+    "describe_scene NON sostituisce evaluate_visual per il flusso principale — è un tool aggiuntivo per analisi più ricca."
+  ]
+}

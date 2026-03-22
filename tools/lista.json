@@ -66,6 +66,12 @@
       "modulo": "agent.dashboard",
       "scopo": "start, phase, token, frame, compile_result, serial_output, run_end",
       "quando": "Notifiche real-time UI su http://localhost:7700 durante tutta la run"
+    },
+    {
+      "nome": "occhio",
+      "modulo": "agent.occhio",
+      "scopo": "Vision tools modulari: calibrate_eye, capture_frames, check_display_on, detect_motion, count_objects, read_text, describe_scene",
+      "quando": "Valutazione visiva OLED — alternativa più precisa a grab_frames+evaluate_visual. Leggi tools/occhio.json per API completa."
     }
   ]
 }
