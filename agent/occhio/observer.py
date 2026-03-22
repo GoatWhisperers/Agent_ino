@@ -66,8 +66,9 @@ HAI ACCESSO A QUESTI TOOL (chiamali in sequenza, uno alla volta):
   view_frame(frame_path)
     → {"description": str, "objects_seen": str, "confidence": str}
     MI50 vision guarda il frame raw e descrive liberamente cosa vede sul display.
-    Usalo quando: count_objects dà risultati inattesi, white_ratio è anomalo,
-    vuoi conferma visiva prima del report finale. LENTO (~30-60s).
+    CHIAMALO SEMPRE dopo capture_frames — è il passo di osservazione diretta.
+    Fornisce la descrizione qualitativa che i numeri di count_objects non possono dare.
+    LENTO (~30-60s) ma obbligatorio per una valutazione affidabile.
 
   run_analysis(frame_paths, threshold, contrast)
     → {"total": int, "dots": [...], "segments": [...], "blocks": int, "description": str}
@@ -77,7 +78,7 @@ HAI ACCESSO A QUESTI TOOL (chiamali in sequenza, uno alla volta):
         → alza se ci sono troppi falsi positivi (180, 200)
       contrast: float 1.0-5.0, boost contrasto PIL prima dell'analisi (default 1.0)
         → aumenta (2.0, 3.0) se il display è poco contrastato
-    Usalo dopo count_objects se il risultato non sembra corretto.
+    Usalo se count_objects/view_frame danno risultati discordanti o inattesi.
 
   recalibrate()
     → {"preset": str, "scores": dict, "white_ratio_at_calibration": float}
@@ -110,14 +111,22 @@ FORMATO RISPOSTA (scegli UNO per turno):
     "reason": "spiegazione concisa (max 100 parole)"
   }}
 
+SEQUENZA STANDARD (da seguire in questo ordine):
+  1. check_display_on()
+  2. capture_frames(n=3, interval_ms=1000)
+  3. view_frame(frame_paths[0])       ← SEMPRE — visione diretta sul frame grezzo
+  4. detect_motion(frame_paths)       ← se goal menziona movimento/animazione
+  5. count_objects(frame_paths)       ← conta blob per confermare numeri
+  6. run_analysis() se count_objects discorda con view_frame
+  7. report finale
+
 REGOLE:
 1. UNA SOLA azione per risposta. Aspetta il risultato prima di procedere.
 2. NON inventare risultati. Se check_display_on ritorna on=false, fermati.
-3. MAX 8 passi totali (incluso il report finale). Con view_frame/recalibrate usa
-   i passi extra solo se davvero necessario.
+3. MAX 8 passi totali (incluso il report finale).
 4. Il report finale DEVE contenere success_hint: true/false rispetto al goal.
-5. Se count_objects dà risultati strani, preferisci run_analysis o view_frame
-   prima di concludere — non fidarti ciecamente dei numeri.
+5. Usa ENTRAMBE le fonti — view_frame per la descrizione qualitativa, count_objects
+   per i numeri. Se discordano, chiama run_analysis con parametri diversi.
 """
 
 
@@ -368,7 +377,7 @@ def observe_display(goal: str, max_steps: int = 8) -> dict:
 
     messages = [
         {"role": "system", "content": _OBSERVER_SYSTEM},
-        {"role": "user",   "content": f"GOAL: {goal}\n\nInizia l'osservazione. Prima chiama check_display_on."},
+        {"role": "user",   "content": f"GOAL: {goal}\n\nInizia l'osservazione seguendo la sequenza standard: check_display_on → capture_frames → view_frame → detect_motion/count_objects → report."},
     ]
 
     steps_taken = 0
