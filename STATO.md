@@ -1,6 +1,6 @@
 # STATO — Programmatore di Arduini
 
-> Ultima modifica: 2026-03-22 (pomeriggio — ricerca KB per funzione, 56 lessons, guard fasi avanzate)
+> Ultima modifica: 2026-03-22 (sera — Progetto Snake L1✅ L2✅ L3✅ L4🔄, 85+ lessons KB)
 
 ---
 
@@ -13,7 +13,7 @@
 | M40 (Gemma 3 12B Q4_K_M) | ✅ porta 11435 | **modello cambiato questa sessione** — code generation |
 | Dashboard SSE | ✅ porta 7700 | avvio standalone (nohup) |
 | Raspberry Pi | ✅ 192.168.1.167 | rete eth0 Vodafone |
-| ESP32 | ✅ /dev/ttyUSB0 | Predatore Boids caricato ✅ |
+| ESP32 | ✅ /dev/ttyUSB0 | Snake L3 caricato (L4 in corso) |
 | Memory server | ✅ porta 7701 | Docker LLM-free, hash dedup + heat score |
 
 > **ATTENZIONE dopo ogni reboot**: `sudo ip link set eth0 up && sudo dhcpcd eth0`
@@ -27,6 +27,39 @@ cd /home/lele/codex-openai/programmatore_di_arduini
 source .venv/bin/activate
 bash agent/start_servers.sh   # avvia MI50 + M40 + controlla VRAM
 ```
+
+---
+
+## SESSIONE 2026-03-22 (sera) — Progetto Snake
+
+### Progetto Snake — avanzamento livelli
+
+| Livello | Task | Stato | Patch | Bug M40 |
+|---------|------|-------|-------|---------|
+| L1 — Pixel rimbalzante | pixel 2x2 su OLED, BOUNCE su serial | ✅ 0 patch | 0 | nessuno |
+| L2 — Corpo che segue | corpo 5 segmenti, circular buffer | ✅ 0 patch | 0 | nessuno (fix proattivi compiler) |
+| L3 — Cibo + crescita | food random, EAT su serial, score | ✅ 1 patch | 1 manuale | 2 critici (loop infinito, prevX/prevY) |
+| L4 — Game Over | self-collision + wall death + reset | 🔄 in corso | - | - |
+| L5 — Navigazione autonoma | look-ahead, evita 180°, svolta libera | ⏳ - | - | - |
+| L6 — Score + velocità | score display, delay 200→50ms | ⏳ - | - | - |
+| L7 — Neuroevoluzione | rete neurale 3 input, pesi evoluti su ESP32 | ⏳ - | - | - |
+
+**Lessons aggiunte in questa sessione**: ~5 lessons snake specifiche (randomFreePos, wall bounce, positions[0] head tracking)
+
+**Fix sistemici scoperti in Snake**:
+| Fix | File | Commit |
+|-----|------|--------|
+| Serial-first threshold 1 (era max(1,N//2)) | evaluator.py | 3d1fdda |
+| Serial.begin() proattivo se mancante | compiler.py | a0bf835 |
+| fillRect senza colore → SSD1306_WHITE auto | compiler.py | f015d7c |
+| sess.eval_result {} nel serial-first path | tool_agent.py | f015d7c |
+| expected_events estratti dal task string | tool_agent.py | 3fbd766 |
+| anchor_done reason non più placeholder letterale | tool_agent.py | questa sessione |
+
+**Bug M40 sistematici di Snake** (aggiunti ai task successivi come guardie esplicite):
+- `randomFreePos()` → SEMPRE `for(int i<100)` non `while(true)` — ESP32 si blocca al boot
+- `updatePhysics()` → SEMPRE `positions[0][0]` come testa, mai variabili float separate
+- `checkWallCollision()` → non chiamare due volte per frame
 
 ---
 

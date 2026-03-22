@@ -132,9 +132,32 @@ Commit: `3d1fdda`
 
 ---
 
-### Livello 3 — RISULTATO: ...
+### Livello 3 — RISULTATO: ✅ SUCCESSO (1 patch manuale, 2 bug M40)
 
-*(da completare)*
+**Run dir**: `logs/runs/20260322_114431_Serpente_su_OLED_SSD1306_128x64_ESP32_C`
+**Patch**: 1 (manuale — codice fixato prima del resume)
+**Bug M40**: 2 critici + 1 minore
+**Serial**: `SCORE:0 × N` confermato → serial-first success ✅
+**Autonomia**: ~85% (fix manuale necessario)
+
+**Bug M40 trovati**:
+| Bug | Descrizione | Fix |
+|-----|-------------|-----|
+| `randomFreePos()` loop infinito | `while(true)` senza exit → setup() si blocca al boot | `for(attempts<100)` con return true/false |
+| `prevX`/`prevY` mai aggiornati | testa calcolata da (0,0) ogni frame → immobile | usa `positions[0][0]` direttamente |
+| `checkWallCollision()` duplicata | chiamata sia in `updatePhysics()` che in `loop()` | rimossa da `loop()`, merge in `updatePhysics()` |
+
+**Piano MI50**: corretto — `randomFreePos()`, `updatePhysics()`, wall bounce, drawSnake() tutti corretti come struttura.
+M40 però ha implementato la logica di `randomFreePos()` in modo errato (loop infinito) e `updatePhysics()` con `prevX/prevY` stantii.
+
+**Lessons aggiunte alla KB**:
+- Snake movement: wall bounce + abs() + clamp necessari
+- randomFreePos: loop con max 100 tentativi, non while(true)
+- positions[0] come source of truth per la testa, non variabili float separate
+
+**Nota sistemica**: il serial output era `SCORE:0` (non `EAT`) perché il serpente non ha incontrato il cibo
+nella finestra di lettura seriale (10s). Il serial-first ha funzionato grazie a `SCORE:` che era presente.
+La collisione cibo è implementata correttamente — serve più tempo di osservazione.
 
 ---
 

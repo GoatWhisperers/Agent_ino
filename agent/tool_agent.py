@@ -514,13 +514,17 @@ class _ContextManager:
         ev_success_val = sess.eval_result.get("success", False) if sess.eval_result else False
         success_str = "true" if ev_success_val else "false"
 
+        # Costruisci la reason già pronta così MI50 non usa placeholder letterale
+        done_reason = ev_reason[:120] if ev_reason else ("successo" if ev_success_val else "fallito")
+        done_reason_escaped = done_reason.replace('"', "'")
+
         parts = [
             f"TASK: {sess.task[:80]}\nBOARD: {sess.fqbn}\n"
             f"STATO: valutazione completata.{eval_hint}{serial_hint}\n"
             f"ISTRUZIONE CRITICA:\n"
             f"1. Chiama save_to_kb (args:{{}}) per salvare i pattern appresi.\n"
-            f"2. Poi chiudi con ESATTAMENTE questo JSON (success DEVE riflettere la valutazione):\n"
-            f'   {{"done": true, "success": {success_str}, "reason": "<descrizione breve del risultato>"}}\n'
+            f"2. Poi chiudi con ESATTAMENTE questo JSON:\n"
+            f'   {{"done": true, "success": {success_str}, "reason": "{done_reason_escaped}"}}\n'
             f"NON richiamare compile, patch_code, upload_and_read o evaluate_*. "
             f"La valutazione è già stata completata — non rivalutare."
         ]
