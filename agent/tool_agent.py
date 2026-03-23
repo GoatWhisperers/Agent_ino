@@ -126,13 +126,27 @@ FORMATO (scegli UNO):
   Tool call : {"tool":"nome","args":{...},"reason":"perché"}
   Fine task : {"done":true,"success":bool,"reason":"spiegazione"}
 
+KNOWLEDGE BASE — usa questi tool per attingere all'esperienza documentata:
+  search_lessons args: {"query": "cosa cercare", "n": 5}
+    → QUANDO: PRIMA di plan_task (cerca anti-pattern per il tipo di task)
+    → QUANDO: dopo un errore di compilazione (cerca fix noti per quell'errore)
+    → QUANDO: il codice non funziona sull'hardware (cerca lessons su quel comportamento)
+    → Restituisce: lista di lessons con anti-pattern, spec_hint, task_type
+    → Esempi query: "updateSnake physics esp32", "OLED flickering ssd1306",
+                    "random food spawn while loop", "uint8_t array pointer arduino"
+
+  search_kb args: {"query": "cosa cercare", "n": 3}
+    → QUANDO: vuoi vedere codice funzionante simile al task corrente
+    → Restituisce: snippet di codice con board e descrizione task
+
 FLUSSO (un passo alla volta, aspetta il risultato prima di procedere):
+  0. search_lessons (FACOLTATIVO ma CONSIGLIATO) ← cerca anti-pattern prima di iniziare
   1. plan_task
   2. plan_functions
   3. generate_globals
   4. generate_all_functions    ← M40 genera tutto in parallelo
   5. compile
-     se errori → patch_code → compile  (max 3 cicli)
+     se errori → search_lessons(query=errore) → patch_code → compile  (max 3 cicli)
      patch_code args: {"errors": [...], "analysis": "descrizione fix"}
      M40 riscrive il codice correggendo gli errori — NON serve analyze_errors prima
   6. upload_and_read           ← se il messaggio dice "pronto per upload", chiama QUESTO
@@ -1374,14 +1388,52 @@ def _evaluate_text(args: dict, sess: _Session) -> dict:
 
 
 def _search_kb(args: dict, sess: _Session) -> dict:
+    """Cerca snippet di codice simili nella KB. Usa query specifica se fornita."""
     try:
         from knowledge.query_engine import search_snippets_text
-        n       = int(args.get("n", 3))
-        results = search_snippets_text(sess.task, limit=n)
+        query = args.get("query", "") or sess.task
+        n     = int(args.get("n", 3))
+        results = search_snippets_text(query, limit=n)
         for r in results:
             if len(r.get("code", "")) > 400:
                 r["code"] = r["code"][:400] + "\n..."
-        return {"ok": True, "results": results}
+        return {"ok": True, "n": len(results), "results": results}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _search_lessons(args: dict, sess: _Session) -> dict:
+    """Cerca lessons e anti-pattern nella KB. Usare durante planning e debug."""
+    try:
+        from knowledge.semantic import search_lessons as sem_search_lessons
+        from knowledge.db import search_lessons as sql_search_lessons
+        query = args.get("query", "") or sess.task
+        n     = int(args.get("n", 5))
+
+        # Prova semantic search prima
+        try:
+            results = sem_search_lessons(query, n=n)
+        except Exception:
+            results = []
+
+        # Fallback SQL se semantic vuoto
+        if not results:
+            rows = sql_search_lessons(query, limit=n)
+            results = [
+                {"lesson": r["lesson"], "task_type": r["task_type"],
+                 "spec_hint": r.get("spec_hint", ""), "score": 1.0}
+                for r in rows
+            ]
+
+        # Formato compatto per il contesto
+        formatted = []
+        for r in results:
+            entry = {"lesson": r.get("lesson", ""), "task_type": r.get("task_type", "")}
+            if r.get("spec_hint"):
+                entry["hint"] = r["spec_hint"]
+            formatted.append(entry)
+
+        return {"ok": True, "n": len(formatted), "lessons": formatted}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -1433,6 +1485,7 @@ _REGISTRY = {
     "list_tools":             _list_tools,
     "get_tool":               _get_tool,
     "search_kb":              _search_kb,
+    "search_lessons":         _search_lessons,
     "plan_task":              _plan_task,
     "plan_functions":         _plan_functions,
     "generate_globals":       _generate_globals,
