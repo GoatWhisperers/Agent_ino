@@ -139,12 +139,33 @@ KNOWLEDGE BASE — usa questi tool per attingere all'esperienza documentata:
     → QUANDO: vuoi vedere codice funzionante simile al task corrente
     → Restituisce: snippet di codice con board e descrizione task
 
+CONOSCENZA KB — come usarla autonomamente:
+  list_lesson_types {}
+    → mappa delle categorie disponibili + conteggio per categoria
+    → ritorna "suggested_for_task": le categorie rilevanti per questo task
+    → usare PRIMA di plan_task per sapere cosa è disponibile
+  search_lessons {"query": "...", "n": 5}
+    → ricerca semantica, ritorna lessons + "category_sizes" (quante lessons per categoria)
+    → se "category_sizes" mostra una categoria con molte lessons → cerca quella categoria
+  search_lessons {"task_type": "oled_ssd1306", "n": 10}
+    → fetch diretto di tutte le lessons in una categoria specifica
+    → usare dopo list_lesson_types per approfondire categorie rilevanti
+
 FLUSSO (un passo alla volta, aspetta il risultato prima di procedere):
-  0. search_lessons (FACOLTATIVO ma CONSIGLIATO) ← cerca anti-pattern prima di iniziare
+  0. list_lesson_types {} ← mappa KB, scopri quali categorie esistono per questo task
+     poi search_lessons per ogni categoria suggerita (max 2 chiamate)
   1. plan_task
   2. plan_functions
   3. generate_globals
   4. generate_all_functions    ← M40 genera tutto in parallelo
+  4.5 request_review (OBBLIGATORIO dopo generate_all_functions, PRIMA di compile)
+     Chiede una review esterna del codice. Se ricevi feedback con BUG/FIX, correggili
+     con patch_code prima di procedere a compile.
+     request_review non ha argomenti: {}
+  4.6 install_libraries (SE SERVE)
+     install_libraries args: {"libraries": ["Adafruit SSD1306", "DHTesp", ...]}
+     → QUANDO: compile restituisce errori tipo "No such file or directory", "library not found",
+       oppure check librerie segnala missing.
   5. compile
      se errori → search_lessons(query=errore) → patch_code → compile  (max 3 cicli)
      patch_code args: {"errors": [...], "analysis": "descrizione fix"}
@@ -263,9 +284,10 @@ class _Session:
     PHASE_EVALUATING = "evaluating"  # grab_frames, evaluate_*
     PHASE_DONE       = "done"        # save_to_kb, {done:true}
 
-    def __init__(self, task: str, fqbn: str):
+    def __init__(self, task: str, fqbn: str, interactive: bool = False):
         self.task = task
         self.fqbn = fqbn
+        self.interactive = interactive  # True = --interactive flag, abilita timeout lunghi e pause
         self.nb = None
         self.sketch_dir = None
         self.code = ""
@@ -279,6 +301,7 @@ class _Session:
         self.plan_result = {}       # output di plan_task, usato nell'anchor generating
         self.eval_result = {}       # risultato evaluate_visual/evaluate_text — usato in _anchor_done
         self.expected_events: list  = _parse_expected_events(task)  # da task string, fallback serial-first
+        self.review_notes: list[dict] = []  # bug+soluzione da request_review → lessons KB
         self.logger: RunLogger = None  # impostato da run()
 
     def set_phase(self, phase: str):
@@ -387,21 +410,27 @@ class _ContextManager:
         self.fqbn = fqbn
         self._turns: list[tuple[str, str]] = []
         self._summary: list[str] = []
+        self.review_notes: list[dict] = []  # bug+soluzione da request_review → lessons KB
 
     def add_turn(self, assistant_raw: str, tool_name: str, result_str: str):
+        # Rimuovi i blocchi <think> dall'assistant raw prima di memorizzarli.
+        # Il thinking è già stato usato da MI50 per produrre l'azione JSON.
+        # Tenerlo in memoria ripete 2000-3000 token inutili ad ogni turno.
+        # Il result_str dei tool NON viene mai troncato — MI50 deve vedere tutto.
+        assistant_stored = re.sub(r"<think>.*?</think>", "", assistant_raw, flags=re.DOTALL).strip()
         user_content = f"Risultato {tool_name}:\n{result_str}"
-        self._turns.append((assistant_raw, user_content))
+
+        self._turns.append((assistant_stored, user_content))
         while len(self._turns) > self.MAX_TURNS:
             old_a, old_u = self._turns.pop(0)
             try:
-                cleaned = re.sub(r"<think>.*?</think>", "", old_a, flags=re.DOTALL).strip()
-                call = json.loads(cleaned)
+                call = json.loads(old_a)
                 tn = call.get("tool", "?")
             except Exception:
                 tn = "?"
             prefix = f"Risultato {tn}:\n"
-            result_short = old_u[len(prefix):].strip()[:120].replace("\n", " ")
-            self._summary.append(f"✓ {tn}: {result_short}")
+            evicted_result = old_u[len(prefix):].strip()[:120].replace("\n", " ")
+            self._summary.append(f"✓ {tn}: {evicted_result}")
 
     def build_messages(self, sess: _Session) -> list[dict]:
         anchor = self._build_anchor(sess)
@@ -435,7 +464,8 @@ class _ContextManager:
         """Fase planning: task completo, nessun codice."""
         parts = [f"TASK: {sess.task}\nBOARD: {sess.fqbn}"]
         if self._summary:
-            parts.append("COMPLETATI:\n" + "\n".join(self._summary))
+            # Mostra solo gli ultimi 5 step completati per evitare context explosion
+            parts.append("COMPLETATI:\n" + "\n".join(self._summary[-5:]))
         return "\n\n".join(parts)
 
     def _anchor_generating(self, sess: _Session) -> str:
@@ -841,39 +871,131 @@ def _generate_all_functions(args: dict, sess: _Session) -> dict:
     if not funzioni:
         return {"error": "Nessuna funzione nel notebook. Chiama plan_functions prima."}
 
+    # Safety net: se MI50 salta generate_globals, genera qui i globals automaticamente.
+    # Evita compile con simboli non dichiarati (Wire/display/dht/...).
+    if not (sess.nb.globals_code or "").strip():
+        try:
+            gen_g = Generator()
+            g_res = gen_g.generate_globals(nb=sess.nb, kb_example=sess.kb_example)
+            sess.nb.globals_code = g_res["code"]
+            if sess.logger:
+                sess.logger.log(
+                    f"[AUTO GLOBALS] generate_all_functions ha auto-generato globals: "
+                    f"{len(g_res['code'].splitlines())} righe"
+                )
+            _dash("phase", name="AUTO GLOBALS", detail="globals auto-generati (missing)")
+        except Exception as e:
+            return {"error": f"Auto-generate globals fallito: {type(e).__name__}: {e}"}
+
     _phase("GEN PARALLELO", f"M40 genera {len(funzioni)} funzioni in parallelo")
     _dash("phase", name="M40 PARALLEL", detail=f"{len(funzioni)} funzioni: {', '.join(funzioni)}")
 
     results = {}
     errors = {}
 
-    # Pre-carica lessons KB specifiche per ogni funzione (ricerca function-level)
-    # Query = task + nome funzione → trova anti-pattern noti per quella funzione specifica
+    # Pre-carica lessons KB specifiche per ogni funzione — strategia multi-livello:
+    # 1. Semantica: query = task + nome funzione
+    # 2. Categoriale: se task ha keywords note → fetch categorie specifiche
+    # Risultato formattato come CHECKLIST con severità per M40
     func_lessons_map: dict[str, str] = {}
     try:
         from knowledge.semantic import search_lessons as sem_lessons
-        from knowledge.db import search_lessons as db_lessons
+        from knowledge.db import search_lessons as db_lessons, _get_conn
+
+        # Rileva categorie rilevanti dal task (swap di contesto verso M40)
+        task_lower = sess.task.lower()
+        forced_categories: list[str] = []
+        if any(kw in task_lower for kw in ["oled", "ssd1306", "display"]):
+            forced_categories += ["oled_ssd1306", "oled_trigonometry"]
+        if any(kw in task_lower for kw in ["dht11", "dht22", "dhtesp"]):
+            forced_categories += ["dhtesp"]
+        if any(kw in task_lower for kw in ["wifi", "http"]):
+            forced_categories += ["wifi_esp32"]
+        if any(kw in task_lower for kw in ["snake", "game", "score"]):
+            forced_categories += ["snake_game"]
+        if any(kw in task_lower for kw in ["servo", "motor"]):
+            forced_categories += ["servo_pwm"]
+        forced_categories += ["m40_behavior"]  # sempre: anti-pattern M40
+
+        # Fetch lessons per categoria (stabile, non semantico)
+        cat_lessons: list[dict] = []
+        conn = _get_conn()
+        for cat in forced_categories:
+            rows = conn.execute(
+                "SELECT lesson, task_type, spec_hint FROM lessons WHERE task_type=? ORDER BY confirmed_count DESC LIMIT 3",
+                (cat,)
+            ).fetchall()
+            for r in rows:
+                cat_lessons.append({"lesson": r[0], "task_type": r[1], "spec_hint": r[2] or ""})
+
+        # Keywords che indicano quali categorie sono rilevanti per ogni funzione
+        FUNC_CATEGORY_HINTS = {
+            "draw": ["oled_ssd1306", "oled_trigonometry"],
+            "clock": ["oled_trigonometry", "oled_ssd1306"],
+            "hand": ["oled_trigonometry"],
+            "display": ["oled_ssd1306"],
+            "digital": ["oled_ssd1306"],
+            "time": ["oled_ssd1306"],
+            "sensor": ["dhtesp"],
+            "read": ["dhtesp", "esp32_hardware"],
+            "update": ["m40_behavior"],
+            "loop": ["m40_behavior", "oled_ssd1306"],
+            "patch": ["m40_behavior"],
+            "setup": ["oled_ssd1306", "esp32_hardware"],
+        }
+
         for nome in funzioni:
+            nome_lower = nome.lower()
+
+            # Raccogli lessons semantiche per questa funzione
             query = f"{sess.task[:60]} {nome}"
-            lessons = []
+            sem = []
             try:
-                lessons = sem_lessons(query, n=4)
+                sem = sem_lessons(query, n=3)
             except Exception:
                 pass
-            if not lessons:
-                lessons = db_lessons(query, limit=4)
-            if lessons:
-                # Filtra lessons già viste nel lessons_context (evita ridondanza)
-                seen = set(sess.lessons_context.split("\n")) if sess.lessons_context else set()
-                new_lessons = [l for l in lessons if l.get("lesson", "") not in seen][:3]
-                if new_lessons:
-                    func_lessons_map[nome] = "\n".join(
-                        f"- {l.get('lesson', '')}" for l in new_lessons
+            if not sem:
+                rows = db_lessons(query, limit=3)
+                sem = [{"lesson": r["lesson"], "task_type": r["task_type"],
+                        "spec_hint": r.get("spec_hint", "")} for r in rows]
+
+            # Aggiungi lessons da categorie esplicite matching il nome funzione
+            extra: list[dict] = list(cat_lessons)  # categorie globali del task
+            for kw, cats in FUNC_CATEGORY_HINTS.items():
+                if kw in nome_lower:
+                    for cat in cats:
+                        rows = conn.execute(
+                            "SELECT lesson, task_type, spec_hint FROM lessons WHERE task_type=? ORDER BY confirmed_count DESC LIMIT 2",
+                            (cat,)
+                        ).fetchall()
+                        for r in rows:
+                            extra.append({"lesson": r[0], "task_type": r[1], "spec_hint": r[2] or ""})
+
+            # Deduplicazione su testo lesson
+            all_lessons: list[dict] = []
+            seen_text: set = set()
+            seen_ctx = set(sess.lessons_context.split("\n")) if sess.lessons_context else set()
+            for l in (sem + extra):
+                txt = l.get("lesson", "")
+                if txt and txt not in seen_text and txt not in seen_ctx:
+                    seen_text.add(txt)
+                    all_lessons.append(l)
+
+            if all_lessons:
+                # Formato CHECKLIST con categoria — M40 le vede come regole, non suggerimenti
+                lines = ["CHECKLIST ANTI-PATTERN (rispetta TUTTE prima di scrivere il codice):"]
+                for i, l in enumerate(all_lessons[:6], 1):
+                    cat = l.get("task_type", "")
+                    hint = l.get("spec_hint", "")
+                    line = f"{i}. [{cat.upper()}] {l.get('lesson', '')}"
+                    if hint:
+                        line += f"\n   → {hint}"
+                    lines.append(line)
+                func_lessons_map[nome] = "\n".join(lines)
+                if sess.logger:
+                    sess.logger.log(
+                        f"[KB/{nome}] {len(all_lessons[:6])} lessons (semantica+categorie)"
                     )
-                    if sess.logger:
-                        sess.logger.log(
-                            f"[KB/{nome}] {len(new_lessons)} lessons funzione-specifiche"
-                        )
     except Exception as e:
         if sess.logger:
             sess.logger.log(f"[KB func-level search] errore: {e}")
@@ -1387,6 +1509,51 @@ def _evaluate_text(args: dict, sess: _Session) -> dict:
     }
 
 
+def _list_lesson_types(args: dict, sess: _Session) -> dict:
+    """
+    Ritorna la mappa delle categorie di lessons disponibili nella KB.
+    Utile prima di plan_task per capire quale materiale è disponibile.
+    Output: lista di {task_type, count, sample} ordinata per count desc.
+    """
+    try:
+        from knowledge.db import _get_conn
+        conn = _get_conn()
+        rows = conn.execute(
+            "SELECT task_type, COUNT(*) as cnt FROM lessons GROUP BY task_type ORDER BY cnt DESC"
+        ).fetchall()
+        categories = [{"type": r[0], "count": r[1]} for r in rows]
+        total = sum(r[1] for r in rows)
+        # Suggerisci SOLO le categorie con naming canonico (snake_case breve)
+        # Le categorie "sporche" (CamelCase, spazi, nomi lunghi) sono lessons vecchie mal-classificate
+        task_lower = sess.task.lower()
+        CANONICAL_MAP = {
+            ("oled", "ssd1306", "display", "schermo"): ["oled_ssd1306", "oled_trigonometry"],
+            ("dht", "temperatura", "umidita"):         ["dhtesp", "dht_sensor"],
+            ("wifi", "http", "webserver"):             ["wifi_esp32"],
+            ("mqtt",):                                 ["mqtt_esp32"],
+            ("servo", "motore"):                       ["servo_pwm"],
+            ("neopixel", " led ", "strip"):              ["neopixel"],
+            ("snake", "game"):                         ["snake_game"],
+            ("i2c",):                                  ["i2c"],
+            ("uart", "serial"):                        ["uart_multi_device"],
+        }
+        relevant = ["m40_behavior", "esp32_hardware"]  # sempre inclusi
+        for keywords, cats in CANONICAL_MAP.items():
+            if any(kw in task_lower for kw in keywords):
+                for cat in cats:
+                    if cat not in relevant:
+                        relevant.append(cat)
+        return {
+            "ok": True,
+            "total_lessons": total,
+            "categories": categories[:20],  # top 20
+            "suggested_for_task": relevant,
+            "tip": "Usa search_lessons con query specifica su ogni categoria suggerita prima di plan_task",
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def _search_kb(args: dict, sess: _Session) -> dict:
     """Cerca snippet di codice simili nella KB. Usa query specifica se fornita."""
     try:
@@ -1403,39 +1570,277 @@ def _search_kb(args: dict, sess: _Session) -> dict:
 
 
 def _search_lessons(args: dict, sess: _Session) -> dict:
-    """Cerca lessons e anti-pattern nella KB. Usare durante planning e debug."""
+    """
+    Cerca lessons e anti-pattern nella KB.
+    Parametri:
+      query      : stringa di ricerca (default: task corrente)
+      n          : numero risultati semantici (default 5)
+      task_type  : filtra per categoria specifica (es. "oled_ssd1306")
+    Ritorna anche quante lessons esistono nella stessa categoria ("more_in_category").
+    """
     try:
         from knowledge.semantic import search_lessons as sem_search_lessons
-        from knowledge.db import search_lessons as sql_search_lessons
-        query = args.get("query", "") or sess.task
-        n     = int(args.get("n", 5))
+        from knowledge.db import search_lessons as sql_search_lessons, _get_conn
+        query     = args.get("query", "") or sess.task
+        n         = int(args.get("n", 5))
+        task_type = args.get("task_type", "")  # filtro categoria opzionale
 
-        # Prova semantic search prima
-        try:
-            results = sem_search_lessons(query, n=n)
-        except Exception:
-            results = []
-
-        # Fallback SQL se semantic vuoto
-        if not results:
-            rows = sql_search_lessons(query, limit=n)
+        # Se filtro categoria: usa SQL direttamente (più preciso)
+        if task_type:
+            conn = _get_conn()
+            rows = conn.execute(
+                "SELECT lesson, task_type, spec_hint FROM lessons WHERE task_type=? ORDER BY confirmed_count DESC LIMIT ?",
+                (task_type, n)
+            ).fetchall()
             results = [
-                {"lesson": r["lesson"], "task_type": r["task_type"],
-                 "spec_hint": r.get("spec_hint", ""), "score": 1.0}
+                {"lesson": r[0], "task_type": r[1], "spec_hint": r[2] or "", "score": 1.0}
                 for r in rows
             ]
+        else:
+            # Ricerca semantica
+            try:
+                results = sem_search_lessons(query, n=n)
+            except Exception:
+                results = []
+            # Fallback SQL
+            if not results:
+                rows = sql_search_lessons(query, limit=n)
+                results = [
+                    {"lesson": r["lesson"], "task_type": r["task_type"],
+                     "spec_hint": r.get("spec_hint", ""), "score": 1.0}
+                    for r in rows
+                ]
 
-        # Formato compatto per il contesto
+        # Conta quante lessons ci sono per ogni categoria trovata
+        conn = _get_conn()
+        cat_counts = {}
+        for r in results:
+            tt = r.get("task_type", "")
+            if tt and tt not in cat_counts:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM lessons WHERE task_type=?", (tt,)
+                ).fetchone()
+                cat_counts[tt] = row[0] if row else 0
+
+        # Formato: checklist con categoria e hint
         formatted = []
         for r in results:
-            entry = {"lesson": r.get("lesson", ""), "task_type": r.get("task_type", "")}
+            entry = {
+                "lesson": r.get("lesson", ""),
+                "category": r.get("task_type", ""),
+            }
             if r.get("spec_hint"):
                 entry["hint"] = r["spec_hint"]
             formatted.append(entry)
 
-        return {"ok": True, "n": len(formatted), "lessons": formatted}
+        return {
+            "ok": True,
+            "n": len(formatted),
+            "lessons": formatted,
+            "category_sizes": cat_counts,  # quante lessons ci sono per ogni categoria trovata
+            "tip": (
+                "Per approfondire una categoria usa search_lessons con task_type=<categoria>. "
+                f"Categorie trovate: {list(cat_counts.keys())}"
+            ) if cat_counts else "",
+        }
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+def _install_libraries(args: dict, sess: _Session) -> dict:
+    """
+    Installa librerie mancanti in autonomia:
+    - locale (arduino-cli)
+    - Raspberry/PlatformIO (pio pkg -g)
+    """
+    import shlex
+    import subprocess
+
+    from agent.compiler import ARDUINO_CLI, check_libraries
+    from agent.remote_uploader import ARDUINO_TO_PIO, check_pio_libraries
+
+    raw_libs = args.get("libraries", [])
+    if isinstance(raw_libs, str):
+        raw_libs = [x.strip() for x in raw_libs.split(",") if x.strip()]
+    if not raw_libs:
+        raw_libs = sess.plan_result.get("libraries_needed", []) if isinstance(sess.plan_result, dict) else []
+
+    # Dedup preservando ordine
+    seen = set()
+    libs = []
+    for x in raw_libs:
+        s = str(x).strip()
+        if s and s.lower() not in seen:
+            libs.append(s)
+            seen.add(s.lower())
+
+    if not libs:
+        return {"ok": False, "error": "Nessuna libreria fornita"}
+
+    _phase("INSTALL LIBS", f"installazione librerie: {', '.join(libs[:4])}")
+
+    # 1) Install locale (arduino-cli)
+    local_before = check_libraries(libs)
+    local_missing = list(local_before.get("missing", []))
+    local_install = {"attempted": local_missing, "ok": True, "stderr": ""}
+    if local_missing:
+        try:
+            cmd = [ARDUINO_CLI, "lib", "install", *local_missing]
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            local_install["ok"] = (r.returncode == 0)
+            local_install["stderr"] = (r.stderr or "")[-500:]
+        except Exception as e:
+            local_install["ok"] = False
+            local_install["stderr"] = str(e)
+    local_after = check_libraries(libs)
+
+    # 2) Install remoto (PlatformIO globale sul Pi)
+    remote_before = check_pio_libraries(libs)
+    remote_missing = list(remote_before.get("missing", []))
+    pio_ids = []
+    for name in remote_missing:
+        pio_id = ARDUINO_TO_PIO.get(name, name)
+        # built-in framework: skip
+        if isinstance(pio_id, str) and pio_id.strip():
+            pio_ids.append(pio_id)
+    # dedup
+    pio_ids = list(dict.fromkeys(pio_ids))
+
+    remote_install = {"attempted": pio_ids, "ok": True, "stderr": ""}
+    if pio_ids:
+        try:
+            install_cmd = " && ".join(
+                f"~/.platformio/penv/bin/pio pkg install -g -l {shlex.quote(pid)}"
+                for pid in pio_ids
+            )
+            ssh_cmd = [
+                "sshpass", "-p", "pippopippo33$$",
+                "ssh", "-T", "-o", "StrictHostKeyChecking=no",
+                "lele@192.168.1.167",
+                install_cmd,
+            ]
+            r = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=240)
+            remote_install["ok"] = (r.returncode == 0)
+            remote_install["stderr"] = (r.stderr or "")[-500:]
+        except Exception as e:
+            remote_install["ok"] = False
+            remote_install["stderr"] = str(e)
+    remote_after = check_pio_libraries(libs)
+
+    ok = bool(local_after.get("all_ok")) and bool(remote_after.get("all_ok"))
+    if sess.logger:
+        sess.logger.log(
+            f"install_libraries: ok={ok} local_missing={local_after.get('missing', [])} "
+            f"remote_missing={remote_after.get('missing', [])}"
+        )
+    return {
+        "ok": ok,
+        "requested": libs,
+        "local": {
+            "before": local_before,
+            "install": local_install,
+            "after": local_after,
+        },
+        "remote": {
+            "before": remote_before,
+            "install": remote_install,
+            "after": remote_after,
+        },
+    }
+
+
+def _request_review(args: dict, sess: _Session) -> dict:
+    """
+    Chiede una review esterna del codice generato.
+    MI50 fornisce un summary dei possibili problemi che ha identificato.
+    Il reviewer umano scrive il feedback in workspace/review_response.txt.
+    Ritorna il feedback ricevuto oppure {"feedback": "ok"} se nessun problema.
+    """
+    import time
+    from pathlib import Path
+
+    WORKSPACE = Path(__file__).parent.parent / "workspace"
+    REQUEST_FILE  = WORKSPACE / "review_request.md"
+    RESPONSE_FILE = WORKSPACE / "review_response.txt"
+    # In modalità interattiva (--interactive) aspetta 10 minuti.
+    # In modalità automatica aspetta 90 secondi poi procede.
+    TIMEOUT_SEC   = 600 if (sess.interactive if hasattr(sess, 'interactive') else False) else 90
+    POLL_SEC      = 5
+
+    summary   = args.get("summary", "Codice generato — nessun problema specifico identificato.")
+    code_hint = args.get("code_hint", "")  # snippet o note sul codice
+
+    # Rimuovi risposta precedente se esiste
+    if RESPONSE_FILE.exists():
+        RESPONSE_FILE.unlink()
+
+    # Scrivi la richiesta di review
+    code_block = sess.code or "(codice non ancora disponibile)"
+    esempio_line = "BUG: usa cos() per Y invece di sin() | FIX: sostituire hourY = ... - cos(...) con ... - sin(...)"
+    nota_section = ("## Nota aggiuntiva\n\n" + code_hint + "\n\n") if code_hint else ""
+    REQUEST_FILE.write_text(
+        "# CODE REVIEW REQUEST\n\n"
+        f"**Task:** {sess.task[:300]}\n\n"
+        f"## Analisi MI50 — possibili problemi\n\n{summary}\n\n"
+        f"{nota_section}"
+        f"## Codice generato\n\n```cpp\n{code_block}\n```\n\n"
+        "---\n"
+        "**Per rispondere:** scrivi il feedback in `workspace/review_response.txt`\n"
+        "- Se non ci sono problemi scrivere: `ok`\n"
+        "- Se ci sono problemi descriverli, uno per riga:\n"
+        "  `BUG: descrizione problema | FIX: come correggere`\n"
+        f"- Esempio: `{esempio_line}`\n",
+        encoding="utf-8"
+    )
+
+    # Notifica dashboard
+    _phase("REVIEW", "Attendo feedback review — scrivi in workspace/review_response.txt")
+    _dash("status", text="⏳ CODE REVIEW RICHIESTA — scrivi in workspace/review_response.txt")
+    print(f"\n[Review] ⏳ Attendo feedback in workspace/review_response.txt (timeout {TIMEOUT_SEC}s)...")
+    print(f"[Review] Request salvata in: {REQUEST_FILE}")
+
+    # Poll risposta
+    elapsed = 0
+    while elapsed < TIMEOUT_SEC:
+        if RESPONSE_FILE.exists():
+            feedback = RESPONSE_FILE.read_text(encoding="utf-8").strip()
+            if feedback:
+                RESPONSE_FILE.unlink()
+                REQUEST_FILE.unlink()
+                print(f"\n[Review] ✅ Feedback ricevuto: {feedback[:120]}")
+                _dash("status", text="✅ Review ricevuta — MI50 applica correzioni")
+
+                # Parsa le note bug+fix per salvarle poi in KB
+                notes = []
+                if feedback.lower() != "ok":
+                    for line in feedback.splitlines():
+                        line = line.strip()
+                        if "|" in line and "BUG:" in line.upper():
+                            parts = line.split("|")
+                            bug = parts[0].replace("BUG:", "").replace("bug:", "").strip()
+                            fix = parts[1].replace("FIX:", "").replace("fix:", "").strip() if len(parts) > 1 else ""
+                            if bug:
+                                notes.append({"bug": bug, "fix": fix})
+                if notes:
+                    sess.review_notes.extend(notes)
+
+                return {
+                    "feedback": feedback,
+                    "ok": True,
+                    "has_issues": feedback.lower() != "ok",
+                    "notes_parsed": len(notes),
+                }
+
+        time.sleep(POLL_SEC)
+        elapsed += POLL_SEC
+        if elapsed % 60 == 0:
+            print(f"[Review] ... attendo da {elapsed}s ...")
+
+    # Timeout — procedi senza review
+    REQUEST_FILE.unlink(missing_ok=True)
+    print("[Review] ⏰ Timeout — procedo senza review esterna")
+    _dash("status", text="⏰ Review timeout — procedo senza feedback")
+    return {"feedback": "timeout", "ok": True, "has_issues": False}
 
 
 def _save_to_kb(args: dict, sess: _Session) -> dict:
@@ -1458,6 +1863,20 @@ def _save_to_kb(args: dict, sess: _Session) -> dict:
         )
         if sess.logger:
             sess.logger.log("save_to_kb: snippet salvato in KB")
+
+        # Salva bug+soluzioni da request_review come lessons KB
+        if sess.review_notes:
+            from knowledge.db import add_lesson
+            for note in sess.review_notes:
+                lesson_text = f"BUG: {note['bug']} | FIX: {note['fix']}"
+                add_lesson(
+                    task_type="review_fix",
+                    lesson=lesson_text,
+                    board=sess.fqbn,
+                    spec_hint="da request_review — bug trovato da reviewer esterno",
+                )
+            if sess.logger:
+                sess.logger.log(f"save_to_kb: {len(sess.review_notes)} review_fix lessons salvate in KB")
 
         # Registra run nel memory server (best-effort, non blocca)
         try:
@@ -1484,8 +1903,10 @@ def _save_to_kb(args: dict, sess: _Session) -> dict:
 _REGISTRY = {
     "list_tools":             _list_tools,
     "get_tool":               _get_tool,
+    "list_lesson_types":      _list_lesson_types,
     "search_kb":              _search_kb,
     "search_lessons":         _search_lessons,
+    "install_libraries":      _install_libraries,
     "plan_task":              _plan_task,
     "plan_functions":         _plan_functions,
     "generate_globals":       _generate_globals,
@@ -1506,6 +1927,7 @@ _REGISTRY = {
     "describe_scene":         _describe_scene_tool,
     "evaluate_visual":        _evaluate_visual,
     "evaluate_text":          _evaluate_text,
+    "request_review":         _request_review,
     "save_to_kb":             _save_to_kb,
 }
 
@@ -1752,7 +2174,7 @@ def run(task: str, fqbn: str = "esp32:esp32:esp32", max_steps: int = 30,
         logger.log(f"═══ RESUME da step {start_step} (fase: {sess.phase}) ═══")
         print(f"\n[ToolAgent] RESUME da {run_path} — riprendo da Step {start_step}", flush=True)
     else:
-        sess        = _Session(task=task, fqbn=fqbn)
+        sess        = _Session(task=task, fqbn=fqbn, interactive=interactive)
         ctx         = _ContextManager(task=task, fqbn=fqbn)
         start_step  = 1
         logger      = RunLogger(task)

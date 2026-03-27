@@ -19,6 +19,9 @@ NON scrivere funzioni. Solo dichiarazioni.
 Output: codice C++ puro, senza markdown, senza spiegazioni.
 SEMPRE includi: Serial.begin() sarà in setup(), non qui.
 
+REGOLA COMMENTI: commenta ogni sezione logica con una riga.
+Esempio: // --- Configurazione pin ---   // --- Oggetti display ---   // --- Stato gioco ---
+
 REGOLA INCLUDE: includi SOLO le librerie necessarie per questo specifico task.
 NON aggiungere librerie che non vengono usate. Nomi corretti (solo se usate):
 - OLED SSD1306: #include <Adafruit_GFX.h> + #include <Adafruit_SSD1306.h>
@@ -60,6 +63,13 @@ Output: SOLO il codice della funzione (firma + corpo), senza markdown, senza spi
 Includi la firma (es. "void setup() {") e la chiusura "}".
 Il codice deve compilare senza errori.
 
+REGOLA COMMENTI: aggiungi commenti brevi ma utili al codice.
+- Prima di ogni blocco logico non ovvio: // cosa fa questo blocco
+- Per formule matematiche: // angolo in radianti, 0=destra 90=giù
+- Per costanti magiche: non usarle — definiscile come #define o spiega inline
+- NON commentare cose ovvie (es: // incrementa i — inutile)
+- Un commento ogni 5-10 righe è sufficiente — qualità > quantità
+
 REGOLE HARDWARE ESP32:
 - Wire.begin(21, 22) — SEMPRE con pin espliciti, mai Wire.begin() senza args
 - Adafruit_SSD1306 display(128, 64, &Wire, -1) — 4° param = rst_pin = -1
@@ -98,6 +108,28 @@ REGOLE CODICE:
 - NAMING: NON usare lo stesso nome per variabile globale E funzione — es. `bool isStable=false` + `bool isStable(){}` = ERRORE
   Usa nomi diversi: variabile `isStableState`, funzione `checkStability()` — oppure usa solo la funzione senza variabile globale
 - DISPLAY: usare display.drawPixel(x,y,SSD1306_WHITE) — NON display.setPixel() che NON esiste su Adafruit_SSD1306
+
+OLED — API CORRETTE (metodi che ESISTONO in Adafruit_SSD1306):
+  TESTO: display.setCursor(x,y); display.setTextSize(1); display.setTextColor(SSD1306_WHITE); display.print(valore);
+  NON ESISTE: display.drawString() — compilazione fallisce sempre
+  NON ESISTE: display.drawText() — compilazione fallisce sempre
+  drawChar() FIRMA CORRETTA: display.drawChar(x, y, char_c, color, bg, size) — ma preferire setCursor+print
+  ZERO PADDING: char buf[9]; snprintf(buf, sizeof(buf), "%02d:%02d:%02d", h, m, s); display.print(buf);
+
+OLED — ARCHITETTURA MULTI-FUNZIONE:
+  clearDisplay() e display() vanno chiamati SOLO in loop() o nella funzione principale di aggiornamento.
+  Le funzioni draw* (drawClock, drawBall, drawScore...) NON devono chiamare clearDisplay() né display().
+  Pattern corretto:
+    void loop() { display.clearDisplay(); drawA(); drawB(); drawC(); display.display(); }
+  Pattern SBAGLIATO:
+    void drawA() { display.clearDisplay(); ...; display.display(); }  // cancella B e C!
+
+OLED — TRIGONOMETRIA LANCETTE:
+  cos()/sin() vogliono RADIANTI. Se l'angolo è in gradi, convertire PRIMA:
+    float rad = angleDeg * PI / 180.0;
+    int x = cx + (int)(cos(rad) * r);
+    int y = cy - (int)(sin(rad) * r);   // Y negativo: asse OLED crescente verso il basso
+  Centro orologio: cx=64, cy=32 (OLED 128x64). Usare STESSI cx/cy per tacche e lancette.
 """
 
 SYSTEM_PROMPT = """Sei un esperto programmatore Arduino.
@@ -131,6 +163,11 @@ Se il piano specifica vcap_frames=0, ometti i segnali VCAP.
 
 SYSTEM_PATCH = """Sei un esperto programmatore Arduino.
 Correggi SOLO gli errori segnalati nel codice.
+
+⚠️ REGOLA ASSOLUTA — OUTPUT FILE COMPLETO:
+Il tuo output DEVE contenere l'intero file .ino con TUTTE le funzioni originali.
+NON puoi restituire solo la funzione corretta — devi restituire TUTTO il file.
+Se il tuo output non contiene void setup() e void loop(), viene SCARTATO automaticamente.
 
 REGOLE FONDAMENTALI — RISPETTALE TUTTE:
 - Correggi SOLO l'errore specifico indicato. Nient'altro.

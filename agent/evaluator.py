@@ -448,6 +448,7 @@ class Evaluator:
                 f"Display acceso: {obs.get('display_on')}\n"
                 f"Oggetti: {obs.get('objects_total', 0)}\n"
                 f"Movimento: {obs.get('motion_detected')} ({obs.get('motion_confidence','?')})\n"
+                f"Testo OCR: {obs.get('text') or 'nessuno'}\n"
                 f"Observer reason: {obs.get('reason','')}"
             )
             if serial_output and serial_output.strip():

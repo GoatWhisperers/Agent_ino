@@ -26,6 +26,11 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, stream_with_context
 
+# Permette import come "agent.grab" anche se dashboard.py viene avviato fuori dalla root progetto.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 # ── Stato globale ──────────────────────────────────────────────────────────────
 
 _app = Flask(__name__)
@@ -185,26 +190,31 @@ _HTML = r"""<!DOCTYPE html>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-  #main-area { flex: 1; overflow: hidden; display: flex; }
+  #main-area { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
   /* Header */
-  #header { padding: 12px 20px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+  #header { padding: 10px 16px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
   #status-dot { width: 10px; height: 10px; border-radius: 50%; background: #444; flex-shrink: 0; transition: background 0.3s; }
   #status-dot.running { background: #3fb950; box-shadow: 0 0 8px #3fb950; animation: pulse 1.5s infinite; }
   #status-dot.done { background: #3fb950; }
   #status-dot.failed { background: #f85149; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-  #task-title { font-size: 15px; font-weight: 600; color: #e6edf3; flex: 1; }
+  #task-title { font-size: 14px; font-weight: 600; color: #e6edf3; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #btn-task-full { background: #21262d; color: #8b949e; border: 1px solid #30363d; border-radius: 5px; padding: 3px 8px; font-size: 10px; cursor: pointer; }
+  #btn-task-full:hover { color: #e6edf3; border-color: #58a6ff; }
+  #task-full { display: none; max-height: 120px; overflow-y: auto; padding: 8px 14px; background: #0d1117; border-bottom: 1px solid #30363d; font-size: 12px; color: #8b949e; white-space: pre-wrap; }
   #phase-badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; background: #21262d; color: #8b949e; border: 1px solid #30363d; letter-spacing: 0.5px; }
   #board-badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; background: #1f2f1f; color: #56d364; border: 1px solid #3d6b3d; }
   #time-badge { font-size: 11px; color: #6e7681; font-variant-numeric: tabular-nums; }
 
-  /* 3-column layout */
-  #cols { display: flex; flex: 1; overflow: hidden; gap: 1px; background: #30363d; width: 100%; }
-  .col { display: flex; flex-direction: column; background: #0d1117; overflow: hidden; }
-  #col-mi50 { flex: 1; }
-  #col-m40  { flex: 1; }
-  #col-cam  { flex: 0 0 260px; }
+  /* 3-column layout + serial row */
+  #top-area { display: flex; flex: 1; min-height: 0; gap: 1px; background: #30363d; }
+  .col { display: flex; flex-direction: column; background: #0d1117; min-width: 180px; min-height: 0; overflow: hidden; }
+  #col-mi50 { flex: 1 1 38%; }
+  #col-m40  { flex: 1 1 38%; }
+  #col-cam  { flex: 0 0 240px; min-width: 160px; }
+  .col-resizer { width: 4px; background: #30363d; cursor: col-resize; flex-shrink: 0; transition: background 0.15s; }
+  .col-resizer:hover, .col-resizer.dragging { background: #58a6ff; }
 
   .col-header { padding: 8px 14px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .col-label { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
@@ -212,8 +222,10 @@ _HTML = r"""<!DOCTYPE html>
   #col-m40  .col-label { color: #79c0ff; }
   #col-cam  .col-label { color: #ffa657; }
   .col-sub  { font-size: 10px; color: #6e7681; margin-left: auto; }
+  .col-autoscroll { font-size: 10px; color: #6e7681; cursor: pointer; padding: 2px 6px; border: 1px solid #30363d; border-radius: 4px; user-select: none; }
+  .col-autoscroll.locked { color: #f85149; border-color: #f85149; }
 
-  .col-body { flex: 1; overflow-y: auto; padding: 10px 14px; font-size: 12.5px; line-height: 1.65; scroll-behavior: smooth; }
+  .col-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px; font-size: 12.5px; line-height: 1.65; scroll-behavior: smooth; }
   .col-body::-webkit-scrollbar { width: 4px; }
   .col-body::-webkit-scrollbar-track { background: transparent; }
   .col-body::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
@@ -239,6 +251,12 @@ _HTML = r"""<!DOCTYPE html>
   .compile-err  { color: #ffa657; font-size: 11px; padding-left: 12px; }
 
   /* Serial */
+  #serial-resizer { height: 4px; background: #30363d; cursor: row-resize; flex-shrink: 0; transition: background 0.15s; }
+  #serial-resizer:hover, #serial-resizer.dragging { background: #e3b341; }
+  #serial-area { flex: 0 0 160px; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid #30363d; background: #0d1117; }
+  #serial-header { padding: 5px 14px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  #serial-label { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #e3b341; }
+  #serial-body { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 14px; font-size: 12px; line-height: 1.45; font-family: 'JetBrains Mono','Cascadia Code',monospace; }
   .serial-line { color: #e3b341; font-size: 11px; }
 
   /* Webcam */
@@ -292,46 +310,67 @@ _HTML = r"""<!DOCTYPE html>
 <div id="header">
   <div id="status-dot"></div>
   <div id="task-title">In attesa del task...</div>
+  <button id="btn-task-full" onclick="toggleTaskFull()">task</button>
   <div id="board-badge" style="display:none"></div>
   <div id="phase-badge">IDLE</div>
   <div id="time-badge">--:--:--</div>
 </div>
+<div id="task-full"></div>
 
-<div id="main-area"><div id="cols">
-  <div class="col" id="col-mi50">
-    <div class="col-header">
-      <span class="col-label">MI50 — Qwen3.5-9B</span>
-      <span class="col-sub" id="mi50-tokens">0 tok</span>
+<div id="main-area">
+  <div id="top-area">
+    <div class="col" id="col-mi50">
+      <div class="col-header">
+        <span class="col-label">MI50 — Qwen3.5-9B</span>
+        <span class="col-sub" id="mi50-tokens">0 tok</span>
+        <span class="col-autoscroll" id="mi50-as" onclick="toggleAutoScroll('mi50')">↓ auto</span>
+      </div>
+      <div class="col-body output-text" id="mi50-body"></div>
     </div>
-    <div class="col-body output-text" id="mi50-body"></div>
-  </div>
 
-  <div class="col" id="col-m40">
-    <div class="col-header">
-      <span class="col-label">M40 — Qwen3.5-9B Q5_K_M</span>
-      <span class="col-sub" id="m40-tokens">0 tok</span>
-    </div>
-    <div class="col-body output-text" id="m40-body"></div>
-  </div>
+    <div class="col-resizer" id="resizer-1"></div>
 
-  <div class="col" id="col-cam">
-    <div class="col-header">
-      <span class="col-label">Webcam</span>
-      <button id="btn-grab" onclick="grabTestFrame()">📷 Scatta</button>
-      <button id="btn-clear-frames" onclick="clearFrames()">🗑</button>
-      <span class="col-sub" id="cam-count">0 frame</span>
+    <div class="col" id="col-m40">
+      <div class="col-header">
+        <span class="col-label">M40 — Qwen3.5-9B Q5_K_M</span>
+        <span class="col-sub" id="m40-tokens">0 tok</span>
+        <span class="col-autoscroll" id="m40-as" onclick="toggleAutoScroll('m40')">↓ auto</span>
+      </div>
+      <div class="col-body output-text" id="m40-body"></div>
     </div>
-    <div id="test-frame-box">
-      <img id="test-frame-img" src="" alt="test frame" onclick="lightboxImg.src=this.src;lightbox.classList.add('open')">
-      <div id="test-frame-label">test</div>
-    </div>
-    <div class="col-body">
-      <div id="frames-grid">
-        <div id="no-frames">Nessun frame ancora.<br>La webcam si attiva quando<br>il piano prevede vcap.</div>
+
+    <div class="col-resizer" id="resizer-2"></div>
+
+    <div class="col" id="col-cam">
+      <div class="col-header">
+        <span class="col-label">Webcam</span>
+        <button id="btn-grab" onclick="grabTestFrame()">📷 Scatta</button>
+        <button id="btn-clear-frames" onclick="clearFrames()">🗑</button>
+        <span class="col-sub" id="cam-count">0 frame</span>
+      </div>
+      <div id="test-frame-box">
+        <img id="test-frame-img" src="" alt="test frame" onclick="lightboxImg.src=this.src;lightbox.classList.add('open')">
+        <div id="test-frame-label">test</div>
+      </div>
+      <div class="col-body">
+        <div id="frames-grid">
+          <div id="no-frames">Nessun frame ancora.<br>La webcam si attiva quando<br>il piano prevede vcap.</div>
+        </div>
       </div>
     </div>
   </div>
-</div></div>
+
+  <div id="serial-resizer"></div>
+  <div id="serial-area">
+    <div id="serial-header">
+      <span id="serial-label">Serial ESP32</span>
+      <span id="serial-count">0 righe</span>
+      <span class="col-autoscroll" id="serial-as" onclick="toggleAutoScroll('serial')">↓ auto</span>
+      <button id="btn-clear-serial" onclick="clearSerial()">🗑 clear</button>
+    </div>
+    <div id="serial-body"></div>
+  </div>
+</div>
 
 <div id="taskbar">
   <textarea id="task-input" placeholder="Descrivi il task Arduino... (es: mostra un cerchio sul display OLED)" rows="1"></textarea>
@@ -356,6 +395,7 @@ const m40Body  = document.getElementById('m40-body');
 const mi50Tok  = document.getElementById('mi50-tokens');
 const m40Tok   = document.getElementById('m40-tokens');
 const taskTitle = document.getElementById('task-title');
+const taskFull = document.getElementById('task-full');
 const phaseBadge = document.getElementById('phase-badge');
 const boardBadge = document.getElementById('board-badge');
 const statusDot  = document.getElementById('status-dot');
@@ -363,6 +403,8 @@ const timeBadge  = document.getElementById('time-badge');
 const framesGrid = document.getElementById('frames-grid');
 const noFrames   = document.getElementById('no-frames');
 const camCount   = document.getElementById('cam-count');
+const serialBody = document.getElementById('serial-body');
+const serialCountEl = document.getElementById('serial-count');
 const lightbox   = document.getElementById('lightbox');
 const lightboxImg= document.getElementById('lightbox-img');
 const connBanner = document.getElementById('conn-banner');
@@ -370,13 +412,18 @@ const connBanner = document.getElementById('conn-banner');
 let mi50TokenCount = 0;
 let m40TokenCount  = 0;
 let frameCount     = 0;
+let serialLines    = 0;
 let mi50Thinking   = false;
 let startTime      = null;
+let autoMi50 = true;
+let autoM40 = true;
+let autoSerial = true;
 
 // Current text nodes
 let mi50Current = null;
 let m40Current  = null;
 let m40FuncDiv  = null;
+let fullTaskText = 'In attesa del task...';
 
 function newTextNode(parent, cls) {
   const span = document.createElement('span');
@@ -385,13 +432,43 @@ function newTextNode(parent, cls) {
   return span;
 }
 
-function autoScroll(el) {
-  el.scrollTop = el.scrollHeight;
+function maybeScroll(which) {
+  if (which === 'mi50' && autoMi50) mi50Body.scrollTop = mi50Body.scrollHeight;
+  if (which === 'm40' && autoM40) m40Body.scrollTop = m40Body.scrollHeight;
+  if (which === 'serial' && autoSerial) serialBody.scrollTop = serialBody.scrollHeight;
+}
+
+function toggleAutoScroll(which) {
+  if (which === 'mi50') {
+    autoMi50 = !autoMi50;
+    document.getElementById('mi50-as').classList.toggle('locked', !autoMi50);
+  } else if (which === 'm40') {
+    autoM40 = !autoM40;
+    document.getElementById('m40-as').classList.toggle('locked', !autoM40);
+  } else if (which === 'serial') {
+    autoSerial = !autoSerial;
+    document.getElementById('serial-as').classList.toggle('locked', !autoSerial);
+  }
+}
+
+function clearSerial() {
+  serialBody.innerHTML = '';
+  serialLines = 0;
+  serialCountEl.textContent = '0 righe';
 }
 
 function setStatus(s) {
   statusDot.className = '';
   if (s) statusDot.classList.add(s);
+}
+
+function shortTask(t) {
+  if (!t) return '';
+  return t.length > 110 ? (t.slice(0, 110) + ' ...') : t;
+}
+
+function toggleTaskFull() {
+  taskFull.style.display = (taskFull.style.display === 'block') ? 'none' : 'block';
 }
 
 // Timer
@@ -410,17 +487,23 @@ function handleEvent(ev) {
   switch(ev.type) {
 
     case 'task_start':
-      taskTitle.textContent = ev.task;
+      fullTaskText = ev.task || '';
+      taskTitle.textContent = shortTask(fullTaskText);
+      taskTitle.title = fullTaskText;
+      taskFull.textContent = fullTaskText;
+      taskFull.style.display = 'none';
       boardBadge.textContent = ev.board;
       boardBadge.style.display = '';
       mi50Body.innerHTML = '';
       m40Body.innerHTML = '';
       framesGrid.innerHTML = '<div id="no-frames">Nessun frame ancora.</div>';
       noFrames.style.display = '';
-      mi50TokenCount = m40TokenCount = frameCount = 0;
+      serialBody.innerHTML = '';
+      mi50TokenCount = m40TokenCount = frameCount = serialLines = 0;
       mi50Tok.textContent = '0 tok';
       m40Tok.textContent  = '0 tok';
       camCount.textContent = '0 frame';
+      serialCountEl.textContent = '0 righe';
       mi50Current = m40Current = m40FuncDiv = null;
       mi50Thinking = false;
       setStatus('running');
@@ -435,7 +518,7 @@ function handleEvent(ev) {
       div.textContent = '── ' + ev.name + (ev.detail ? ': ' + ev.detail : '') + ' ──';
       mi50Body.appendChild(div);
       mi50Current = null;
-      autoScroll(mi50Body);
+      maybeScroll('mi50');
       break;
 
     case 'thinking_start':
@@ -477,7 +560,7 @@ function handleEvent(ev) {
         mi50TokenCount++;
         if (mi50TokenCount % 10 === 0) {
           mi50Tok.textContent = mi50TokenCount + ' tok';
-          autoScroll(mi50Body);
+          maybeScroll('mi50');
         }
       } else if (ev.source === 'm40' || ev.source === 'm40-think') {
         const isThink = ev.source === 'm40-think';
@@ -490,7 +573,7 @@ function handleEvent(ev) {
         m40TokenCount++;
         if (m40TokenCount % 10 === 0) {
           m40Tok.textContent = m40TokenCount + ' tok';
-          autoScroll(m40Body);
+          maybeScroll('m40');
         }
       }
       break;
@@ -504,7 +587,7 @@ function handleEvent(ev) {
       badge.id = 'func-' + ev.nome;
       m40FuncDiv.appendChild(badge);
       m40Body.appendChild(m40FuncDiv);
-      autoScroll(m40Body);
+      maybeScroll('m40');
       break;
 
     case 'func_done': {
@@ -514,7 +597,7 @@ function handleEvent(ev) {
         b.className = 'func-header func-done';
         b.innerHTML = '✓ <code>' + ev.nome + '()</code> <span style="color:#6e7681;font-size:10px">' + ev.righe + ' righe</span>';
       }
-      autoScroll(m40Body);
+      maybeScroll('m40');
       break;
     }
 
@@ -534,21 +617,20 @@ function handleEvent(ev) {
         });
       }
       mi50Body.appendChild(div2);
-      autoScroll(mi50Body);
+      maybeScroll('mi50');
       break;
     }
 
     case 'serial_output': {
-      const sd = document.createElement('div');
-      sd.style.marginTop = '6px';
       (ev.lines || []).forEach(l => {
         const ld = document.createElement('div');
         ld.className = 'serial-line';
         ld.textContent = '▶ ' + l;
-        sd.appendChild(ld);
+        serialBody.appendChild(ld);
+        serialLines++;
       });
-      mi50Body.appendChild(sd);
-      autoScroll(mi50Body);
+      serialCountEl.textContent = serialLines + ' righe';
+      maybeScroll('serial');
       break;
     }
 
@@ -578,7 +660,7 @@ function handleEvent(ev) {
       nd.style.cssText = 'font-size:10px;color:#6e7681;margin:4px 0;padding:4px 8px;background:#161b22;border-radius:4px;';
       nd.textContent = ev.progress;
       m40Body.appendChild(nd);
-      autoScroll(m40Body);
+      maybeScroll('m40');
       break;
     }
 
@@ -663,9 +745,11 @@ function clearAll() {
   framesGrid.innerHTML = '<div id="no-frames">Nessun frame ancora.</div>';
   testFrameBox.style.display = 'none';
   testFrameImg.src = '';
-  frameCount = 0; mi50TokenCount = 0; m40TokenCount = 0;
+  frameCount = 0; mi50TokenCount = 0; m40TokenCount = 0; serialLines = 0;
   mi50Tok.textContent = '0 tok'; m40Tok.textContent = '0 tok';
   camCount.textContent = '0 frame';
+  serialBody.innerHTML = '';
+  serialCountEl.textContent = '0 righe';
   mi50Current = m40Current = m40FuncDiv = null;
   fetch('/clear_frames', {method:'POST'});
 }
@@ -751,6 +835,68 @@ function connect() {
   };
 }
 connect();
+
+// Resizers (colonne + seriale)
+function enableColumnResize(resizerId, leftId, rightId) {
+  const r = document.getElementById(resizerId);
+  const left = document.getElementById(leftId);
+  const right = document.getElementById(rightId);
+  if (!r || !left || !right) return;
+  let startX = 0, startLeft = 0, startRight = 0;
+  r.addEventListener('mousedown', (e) => {
+    startX = e.clientX;
+    startLeft = left.getBoundingClientRect().width;
+    startRight = right.getBoundingClientRect().width;
+    r.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX;
+      const nl = Math.max(180, startLeft + dx);
+      const nr = Math.max(160, startRight - dx);
+      left.style.flex = '0 0 ' + nl + 'px';
+      right.style.flex = '0 0 ' + nr + 'px';
+    };
+    const onUp = () => {
+      r.classList.remove('dragging');
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+}
+
+function enableSerialResize() {
+  const r = document.getElementById('serial-resizer');
+  const serial = document.getElementById('serial-area');
+  const main = document.getElementById('main-area');
+  if (!r || !serial || !main) return;
+  let startY = 0, startH = 0;
+  r.addEventListener('mousedown', (e) => {
+    startY = e.clientY;
+    startH = serial.getBoundingClientRect().height;
+    r.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    const onMove = (ev) => {
+      const dy = ev.clientY - startY;
+      const nh = Math.max(100, Math.min(main.clientHeight - 120, startH - dy));
+      serial.style.flex = '0 0 ' + nh + 'px';
+    };
+    const onUp = () => {
+      r.classList.remove('dragging');
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+}
+
+enableColumnResize('resizer-1', 'col-mi50', 'col-m40');
+enableColumnResize('resizer-2', 'col-m40', 'col-cam');
+enableSerialResize();
 </script>
 </body>
 </html>"""
@@ -759,6 +905,11 @@ connect();
 @_app.get("/")
 def index():
     return _HTML, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@_app.get("/health")
+def health():
+    return jsonify({"status": "ok", "port": PORT})
 
 
 @_app.post("/grab_test")
@@ -940,3 +1091,9 @@ def start(port: int = PORT):
 def stop():
     global _active
     _active = False
+
+
+if __name__ == "__main__":
+    import signal
+    start(PORT)
+    signal.pause()

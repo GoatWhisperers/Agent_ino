@@ -320,11 +320,11 @@ def _parse_m40_response(raw: str) -> dict | None:
     return best
 
 
-def _m40_step(messages: list[dict]) -> str:
+def _m40_step(messages: list[dict], max_tokens: int = 600) -> str:
     """Chiama M40 per un singolo passo del mini-loop."""
     from agent.m40_client import M40Client
     client = M40Client(timeout=300)  # 5 min — il system prompt è lungo
-    result = client.generate(messages, max_tokens=600, label="M40→Observer")
+    result = client.generate(messages, max_tokens=max_tokens, label="M40→Observer")
     return result.get("response", result.get("raw", ""))
 
 
@@ -388,13 +388,25 @@ def observe_display(goal: str, max_steps: int = 8) -> dict:
 
     steps_taken = 0
     final_report = None
+    # Dati accumulati durante l'osservazione (per fallback report)
+    _accumulated = {
+        "display_on": None,
+        "objects_total": 0,
+        "motion_detected": False,
+        "motion_confidence": "low",
+        "centroid_displacement": 0.0,
+        "text": "",
+        "view_description": "",
+    }
 
     for step in range(max_steps):
         steps_taken = step + 1
         log(f"  [Observer step {steps_taken}/{max_steps}]")
 
         try:
-            raw = _m40_step(messages)
+            # Ultimi 2 passi: report finale può essere verboso → più token
+            step_max_tokens = 1500 if (max_steps - step) <= 2 else 600
+            raw = _m40_step(messages, max_tokens=step_max_tokens)
         except Exception as e:
             log(f"  M40 errore al passo {steps_taken}: {e}")
             break
@@ -442,10 +454,24 @@ def observe_display(goal: str, max_steps: int = 8) -> dict:
 
         if tool_name == "check_display_on":
             last_white_ratio = float(tool_result.get("white_ratio", 0.0))
+            _accumulated["display_on"] = tool_result.get("on")
 
         # Salva risultato detect_motion per post-processing
         if tool_name == "detect_motion":
             _last_detect_motion = tool_result
+            if tool_result.get("motion_detected"):
+                _accumulated["motion_detected"] = True
+                _accumulated["motion_confidence"] = tool_result.get("confidence", "low")
+                _accumulated["centroid_displacement"] = float(tool_result.get("centroid_displacement", 0.0))
+
+        if tool_name == "count_objects":
+            _accumulated["objects_total"] = tool_result.get("total", 0)
+
+        if tool_name == "read_text" and tool_result.get("text_found"):
+            _accumulated["text"] = tool_result.get("text", "")
+
+        if tool_name == "view_frame" and tool_result.get("description"):
+            _accumulated["view_description"] = tool_result["description"][:200]
 
         # Dopo capture_frames: lancia view_frame in parallelo mentre M40 pensa
         if tool_name == "capture_frames" and frame_paths:
@@ -472,30 +498,48 @@ def observe_display(goal: str, max_steps: int = 8) -> dict:
                       f"view_frame vede UN SOLO frame e può dire 'statiche' anche con animazione. "
                       f"Se motion_detected=True → il display mostra ANIMAZIONE in corso.")
 
+        passi_rimasti = max_steps - steps_taken
+        compact_hint = ""
+        if passi_rimasti <= 2:
+            compact_hint = (
+                "\n\n⚠️ REPORT COMPATTO: rispondi con {\"done\": true, \"report\": {...}} "
+                "SENZA includere arrays di dots/segments (solo i conteggi: objects_total, motion_detected, text). "
+                "Mantieni: display_on, motion_detected, motion_confidence, text, description (breve), success_hint, reason."
+            )
         result_msg = (
             f"Risultato {tool_name}:\n"
             f"{json.dumps(tool_result, ensure_ascii=False, default=str, indent=2)}"
             f"{extra}\n\n"
-            f"Cosa fai adesso? Ricorda: max {max_steps - steps_taken} passi rimasti "
+            f"Cosa fai adesso? Ricorda: max {passi_rimasti} passi rimasti "
             f"(incluso il report finale). Se hai dubbi sui numeri usa view_frame o run_analysis."
+            f"{compact_hint}"
         )
         messages.append({"role": "user", "content": result_msg})
 
     if final_report is None:
-        log("  Observer: nessun report — fallback con dati parziali")
+        log("  Observer: nessun report — fallback con dati accumulati")
+        # Costruisce report dai dati raccolti durante i tool calls
+        has_data = (_accumulated["display_on"] is not None or
+                    _accumulated["objects_total"] > 0 or
+                    _accumulated["motion_detected"] or
+                    bool(_accumulated["text"]))
         final_report = {
-            "display_on":            None,
-            "objects_total":         0,
+            "display_on":            _accumulated["display_on"],
+            "objects_total":         _accumulated["objects_total"],
             "dots":                  [],
             "segments":              [],
-            "motion_detected":       False,
-            "motion_confidence":     "low",
-            "centroid_displacement": 0.0,
-            "text":                  "",
-            "description":           "Osservazione incompleta (M40 non ha prodotto report)",
-            "success_hint":          False,
-            "reason":                "Observer non ha completato l'osservazione",
+            "motion_detected":       _accumulated["motion_detected"],
+            "motion_confidence":     _accumulated["motion_confidence"],
+            "centroid_displacement": _accumulated["centroid_displacement"],
+            "text":                  _accumulated["text"],
+            "description":           _accumulated["view_description"] or "Osservazione incompleta (M40 non ha prodotto report)",
+            "success_hint":          has_data and bool(_accumulated["text"] or _accumulated["motion_detected"]),
+            "reason":                "Fallback: dati raccolti dai tool calls, M40 non ha completato il report finale",
         }
+        if has_data:
+            log(f"  Observer fallback: display_on={final_report['display_on']}, "
+                f"motion={final_report['motion_detected']}, text='{final_report['text']}', "
+                f"objects={final_report['objects_total']}")
 
     # ── Post-processing: detect_motion override ──────────────────────────────
     # view_frame vede un singolo frame → può dire "statiche" anche con animazione.
@@ -518,7 +562,8 @@ def observe_display(goal: str, max_steps: int = 8) -> dict:
             # Se goal implica animazione e success_hint=False → correggi
             _anim_kw = ("pallina", "boid", "moto", "muov", "animaz", "ball",
                         "snake", "conway", "fish", "predator", "prey", "punto",
-                        "firework", "sprite", "bounce", "rimbalz")
+                        "firework", "sprite", "bounce", "rimbalz",
+                        "orologio", "lancett", "clock", "analog")
             if not final_report.get("success_hint") and any(kw in goal.lower() for kw in _anim_kw):
                 log(f"  [Observer] success_hint override: motion=True + goal animazione "
                     f"→ success_hint=True")
@@ -527,6 +572,19 @@ def observe_display(goal: str, max_steps: int = 8) -> dict:
                     (final_report.get("reason", "") or "") +
                     f" [auto: detect_motion={dm_conf}, animazione confermata]"
                 ).strip()
+
+    # ── Post-processing: OCR text override ──────────────────────────────────
+    # Se OCR ha trovato testo nel formato HH:MM:SS e success_hint=False → correggi
+    ocr_text = final_report.get("text", "")
+    import re as _re
+    if (ocr_text and not final_report.get("success_hint") and
+            _re.search(r"\d{1,2}:\d{2}(:\d{2})?", ocr_text)):
+        log(f"  [Observer] success_hint override: OCR trovato '{ocr_text}' → success_hint=True")
+        final_report["success_hint"] = True
+        final_report["reason"] = (
+            (final_report.get("reason", "") or "") +
+            f" [auto: OCR text='{ocr_text}']"
+        ).strip()
 
     final_report["steps_taken"] = steps_taken
     return final_report

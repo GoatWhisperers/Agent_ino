@@ -372,6 +372,63 @@ def _fix_setPixel_to_drawPixel(code: str) -> str:
     return re.sub(r"\bdisplay\.setPixel\s*\(", "display.drawPixel(", code)
 
 
+def _fix_drawString_to_setCursor_print(code: str) -> str:
+    """Fix: M40 usa display.drawString(text, x, y) che non esiste in Adafruit_SSD1306.
+    Corretto: display.setCursor(x, y); display.print(text);
+    Pattern:  display.drawString(testo, x, y)  →  display.setCursor(x, y); display.print(testo)
+    """
+    # Cerca chiamate display.drawString(arg0, arg1, arg2) e le converte
+    def _replace_drawstring(m):
+        args = m.group(1)
+        # Cerca di separare i 3 argomenti (text, x, y) tenendo conto di parentesi bilanciate
+        depth = 0
+        parts = []
+        current = []
+        for ch in args:
+            if ch == ',' and depth == 0:
+                parts.append(''.join(current).strip())
+                current = []
+            else:
+                if ch in '([': depth += 1
+                elif ch in ')]': depth -= 1
+                current.append(ch)
+        parts.append(''.join(current).strip())
+        if len(parts) == 3:
+            text_arg, x_arg, y_arg = parts
+            return f"display.setCursor({x_arg}, {y_arg}); display.print({text_arg})"
+        # fallback: se non riesce a parsare, almeno rimuove la chiamata illegale
+        return f"/* drawString non esiste: usare setCursor+print */ display.print({args})"
+    code = re.sub(r"\bdisplay\.drawString\s*\(([^;]+)\)", _replace_drawstring, code)
+    return code
+
+
+def _fix_drawChar_wrong_order(code: str) -> str:
+    """Fix: M40 usa display.drawChar(char, 0, x, y) con ordine argomenti sbagliato.
+    Adafruit_GFX::drawChar firma: drawChar(x, y, c, color, bg, size)
+    Converte il loop drawChar in setCursor+print più semplice."""
+    # Se c'è un for loop su drawChar per stampare una stringa, lo converte
+    # Pattern: for (... i ...) { display.drawChar(str[i], 0, x + i * 8, y); }
+    # → display.setCursor(x, y); display.print(str);
+    # Approccio semplice: sostituisce display.drawChar(... [i] ...) con nota
+    if "display.drawChar" not in code:
+        return code
+    # Cerca il pattern del loop di stampa carattere per carattere
+    code = re.sub(
+        r"for\s*\([^)]+\)\s*\{\s*display\.drawChar\s*\([^)]+\[i\][^)]*\)\s*;\s*\}",
+        lambda m: "// drawChar loop rimosso — usare setCursor+print",
+        code
+    )
+    return code
+
+
+def _fix_drawHLine_to_drawFastHLine(code: str) -> str:
+    """Fix: M40 usa drawHLine()/drawVLine() che non esistono in Adafruit_GFX.
+    Corretto: drawFastHLine(x, y, w, color) e drawFastVLine(x, y, h, color)."""
+    code = re.sub(r"\bdisplay\.drawHLine\s*\(", "display.drawFastHLine(", code)
+    code = re.sub(r"\bdisplay\.drawVLine\s*\(", "display.drawFastVLine(", code)
+    return code
+
+
 def _fix_uint8_grid_pointer(code: str) -> str:
     """
     Fix: M40 scrive uint8_t* grid come parametro ma poi usa grid[y][x] (2D array access).
@@ -407,6 +464,10 @@ _API_ERROR_FIXES = [
     ("no matching function for call to 'Adafruit_SSD1306::fillCircle", _fix_drawCircle_float),
     ("cannot convert 'uint8_t (*)[",                                   _fix_uint8_grid_pointer),
     ("has no member named 'setPixel'",                                 _fix_setPixel_to_drawPixel),
+    ("'drawHLine' was not declared",                                   _fix_drawHLine_to_drawFastHLine),
+    ("'drawVLine' was not declared",                                   _fix_drawHLine_to_drawFastHLine),
+    ("has no member named 'drawString'",                               _fix_drawString_to_setCursor_print),
+    ("has no member named 'drawString'",                               _fix_drawChar_wrong_order),
 ]
 
 
@@ -436,6 +497,11 @@ _BUILTIN_LIBS = {
     "httpclient", "httpupdate", "httpupdateserver", "i2s", "insights", "littlefs",
     "netbios", "preferences", "rainmaker", "sd mmc", "simpleble", "spiffs",
     "ticker", "update", "usb", "webserver", "wifi", "wificlientsecure", "wifiprov",
+}
+
+# Alias nomi libreria usati nei prompt ↔ nomi reali del registry Arduino.
+_LIB_ALIASES = {
+    "dhtesp": {"dht sensor library for espx", "dht sensor library"},
 }
 
 
@@ -483,6 +549,11 @@ def check_libraries(library_names: list[str]) -> dict:
             continue
         # ricerca flessibile: match esatto o sottostringa normalizzata
         found = any(name_norm in n or n in name_norm for n in normalized_installed)
+        if not found and name_norm in _LIB_ALIASES:
+            found = any(
+                any(alias in n or n in alias for n in normalized_installed)
+                for alias in _LIB_ALIASES[name_norm]
+            )
         if found:
             installed.append(name)
         else:

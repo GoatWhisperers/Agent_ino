@@ -73,6 +73,7 @@ ARDUINO_TO_PIO = {
     # ── Librerie esterne (PlatformIO registry) ────────────────────────────────
     "DHT sensor library":    "adafruit/DHT sensor library",
     "DHT":                   "adafruit/DHT sensor library",
+    "DHTesp":                "beegee-tokyo/DHT sensor library for ESPx",
     "OneWire":               "paulstoffregen/OneWire",
     "DallasTemperature":     "milesburton/DallasTemperature",
     "Servo":                 "arduino-libraries/Servo",
