@@ -1,0 +1,114 @@
+[
+  {
+    "task_type": "lora_punto_punto",
+    "lesson": "LORA BEGIN CON FREQUENZA: `#include <SPI.h>; #include <LoRa.h>; if(!LoRa.begin(868E6)){ while(1); }`. Frequenza EU=868E6, US=915E6, AS=923E6. In Italia/Europa SEMPRE 868E6. Se begin() ritorna false: verifica cablaggio SPI+NSS+RST+DIO0.",
+    "spec_hint": "Usare 915E6 in Europa è illegale (banda GSM) e causa interferenze. LoRa.begin() con pin sbagliati o VCC instabile ritorna false silenziosamente.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "lora_punto_punto",
+    "lesson": "LORA SEND PACKET: `LoRa.beginPacket(); LoRa.write(byte) / LoRa.print(string); LoRa.endPacket();`. endPacket(true) = asincrono (non blocca). endPacket() senza parametri = bloccante. beginPacket() DEVE precedere ogni trasmissione.",
+    "spec_hint": "Chiamare LoRa.print() senza beginPacket() prima non invia nulla e non dà errore. Il pacchetto massimo è 255 byte per LoRa raw (senza LoRaWAN overhead).",
+    "hardware_quirk": null,
+    "board": ""
+  },
+  {
+    "task_type": "lora_punto_punto",
+    "lesson": "LORA RECEIVE POLLING: `int size = LoRa.parsePacket(); if(size){ while(LoRa.available()){ char c = (char)LoRa.read(); } Serial.println(LoRa.packetRssi()); Serial.println(LoRa.packetSnr()); }`. RSSI tipico: -50 dBm (vicino) a -120 dBm (limite). SNR>0 = buon segnale.",
+    "spec_hint": "RSSI sotto -120 dBm indica pacchetti inaffidabili. SNR negativo (<-7.5 per SF7) significa il segnale è sotto il rumore — aumentare SF o avvicinare i nodi.",
+    "hardware_quirk": null,
+    "board": ""
+  },
+  {
+    "task_type": "lora_punto_punto",
+    "lesson": "LORA PIN MAPPING setPins: `LoRa.setPins(NSS, RST, DIO0)` chiamare PRIMA di begin(). Heltec WiFi LoRa 32 v2: NSS=18, RST=14, DIO0=26. TTGO LoRa32 v1: NSS=18, RST=14, DIO0=26. Arduino + LoRa shield: NSS=10, RST=9, DIO0=2.",
+    "spec_hint": "Senza setPins() la lib usa i default (NSS=10,RST=9,DIO0=2) validi per Arduino ma sbagliati per ESP32. Il modulo si inizializza ma non trasmette/riceve.",
+    "hardware_quirk": "Heltec v3 usa SX1262 invece di SX1276 — NON compatibile con la lib sandeepmistry. Serve RadioLib o HelTec ufficiale.",
+    "board": ""
+  },
+  {
+    "task_type": "lora_punto_punto",
+    "lesson": "LORA PARAMETRI RF: `LoRa.setSpreadingFactor(7-12)` (default 7, più alto=più range ma più lento), `LoRa.setSignalBandwidth(125E3/250E3/500E3)` (default 125kHz), `LoRa.setCodingRate4(5-8)` (default 5). Tutti e due i nodi DEVONO avere gli stessi parametri o non si sentono.",
+    "spec_hint": "SF12+BW125 = ~250bps ma 15km+ range. SF7+BW500 = ~21kbps ma solo 2-3km. Nodi con SF diverso non comunicano — errore silenzioso difficile da diagnosticare.",
+    "hardware_quirk": null,
+    "board": ""
+  },
+  {
+    "task_type": "lora_punto_punto",
+    "lesson": "LORA INDIRIZZAMENTO MANUALE: aggiungi header nel payload — `LoRa.write(destinazione); LoRa.write(mittente); LoRa.write(msgID); LoRa.write(payload.length()); LoRa.print(payload)`. Alla ricezione leggi e scarta se `destinazione != localAddress && destinazione != 0xFF` (broadcast).",
+    "spec_hint": "LoRa raw non ha indirizzamento nativo — tutti i nodi ricevono tutti i pacchetti. Senza schema di indirizzamento manuale nel payload, ogni nodo processa messaggi non destinati a lui.",
+    "hardware_quirk": null,
+    "board": ""
+  },
+  {
+    "task_type": "lora_punto_punto",
+    "lesson": "LORA GATEWAY/NODE INVERTIQ: gateway usa `LoRa.enableInvertIQ()` per TX e `LoRa.disableInvertIQ()` per RX. Node fa l'opposto. Questo impedisce ai gateway di ricevere altri gateway e ai nodi di ricevere altri nodi — solo comunicazione gateway↔node.",
+    "spec_hint": "Senza InvertIQ, in una rete con più gateway, i gateway ricevono anche i propri echo riflessi. Il pattern InvertIQ è la soluzione standard per topologia a stella.",
+    "hardware_quirk": null,
+    "board": ""
+  },
+  {
+    "task_type": "lorawan_otaa",
+    "lesson": "LORAWAN OTAA CON LMIC — CREDENZIALI: `static const u1_t PROGMEM APPEUI[8]={...}; static const u1_t PROGMEM DEVEUI[8]={...}; static const u1_t PROGMEM APPKEY[16]={...}`. APPEUI e DEVEUI in formato LITTLE-ENDIAN (bytes invertiti dal TTN console). APPKEY in big-endian. Invertire sbagliato = join fallisce.",
+    "spec_hint": "Il TTN console mostra gli EUI in big-endian. Per LMIC devi invertire APPEUI e DEVEUI byte per byte (msb→lsb). L'APPKEY resta invariato. Errore silenzioso: join timeout senza messaggio esplicito.",
+    "hardware_quirk": null,
+    "board": ""
+  },
+  {
+    "task_type": "lorawan_otaa",
+    "lesson": "LORAWAN LMIC PIN MAP: `const lmic_pinmap lmic_pins = { .nss=NSS, .rxtx=LMIC_UNUSED_PIN, .rst=RST, .dio={DIO0,DIO1,DIO2} };`. DIO1 è OBBLIGATORIO per LoRaWAN (RX2 window). Heltec v2: nss=18, rst=14, dio={26,33,LMIC_UNUSED_PIN}. TTGO T-Beam: nss=18, rst=23, dio={26,33,32}.",
+    "spec_hint": "Lasciare DIO1 non connesso (LMIC_UNUSED_PIN) con LoRaWAN causa mancata ricezione dei downlink. DIO1 segnala la fine della finestra RX2. Senza downlink la conferma di join non arriva.",
+    "hardware_quirk": "Heltec v3/v3.1 usa SX1262 non SX1276 — LMIC NON supporta SX1262. Usare RadioLib o LMIC fork per SX1262.",
+    "board": ""
+  },
+  {
+    "task_type": "lorawan_otaa",
+    "lesson": "LORAWAN LMIC LOOP: il loop DEVE chiamare `os_runloop_once()` continuamente — non usare delay() nel loop principale. LMIC gestisce il timing preciso delle finestre RX. In `onEvent(EV_JOINED)` fai il primo uplink. In `onEvent(EV_TXCOMPLETE)` schedula il prossimo con `os_setTimedCallback(&sendjob, os_getTime()+sec2osticks(TX_INTERVAL), do_send)`.",
+    "spec_hint": "Qualsiasi delay() nel loop blocca os_runloop_once() e LMIC perde le finestre RX1/RX2 (1s e 2s dopo TX). Risultato: nessun downlink, possibile desync con il network server.",
+    "hardware_quirk": null,
+    "board": ""
+  },
+  {
+    "task_type": "lorawan_otaa",
+    "lesson": "LORAWAN DUTY CYCLE EU868: in Europa il duty cycle è 1% su SF7-SF9, 0.1% su SF10-SF12. Con SF7+125kHz il tempo di trasmissione è ~50ms → puoi inviare ogni 5 secondi max. TTN Fair Use Policy: max 30 secondi di airtime/giorno, max 10 downlink/giorno. TX_INTERVAL minimo consigliato: 60 secondi.",
+    "spec_hint": "Violare il duty cycle non causa errori software ma è illegale e causa interferenze. TTN blocca il device se supera il Fair Use Policy. Calcola l'airtime con calcolaore online prima di fare deploy.",
+    "hardware_quirk": null,
+    "board": ""
+  },
+  {
+    "task_type": "lorawan_payload",
+    "lesson": "LORAWAN PAYLOAD COMPATTO: non inviare JSON su LoRaWAN — ogni byte costa airtime prezioso. Usa payload binario: `uint8_t payload[4]; payload[0]=temp; payload[1]=highByte(umid); payload[2]=lowByte(umid); payload[3]=batteria;`. Decodifica server-side con Payload Formatter JS nel TTN console.",
+    "spec_hint": "Un payload JSON 'temp:23.5' occupa 11 byte vs 2 byte binari. Con SF12 la differenza è ~3 secondi di airtime extra per messaggio. Moltiplicato per tutti i device della rete diventa critico.",
+    "hardware_quirk": null,
+    "board": ""
+  },
+  {
+    "task_type": "lorawan_radiolib",
+    "lesson": "LORAWAN CON RADIOLIB — OTAA: `SX1278 radio = new Module(NSS, DIO0, RST, DIO1); LoRaWANNode node(&radio, &EU868); node.beginOTAA(joinEUI, devEUI, nwkKey, appKey); node.activateOTAA(); node.sendReceive(payload, size)`. RadioLib supporta SX1276/78 E SX1262 con la stessa API.",
+    "spec_hint": "RadioLib è la libreria moderna raccomandata per nuovi progetti — supporta SX1262 (Heltec v3, T-Beam v1.2) che LMIC non supporta. L'API è più semplice di LMIC e non richiede os_runloop_once().",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "lora_hardware",
+    "lesson": "HELTEC WIFI LORA 32 V2 — PIN LORA SX1276: SCK=5, MISO=19, MOSI=27, NSS=18, RST=14, DIO0=26, DIO1=33, DIO2=32. Display OLED: SDA=4, SCL=15, RST=16. VEXT (alimentazione sensori esterni): pin 21, attivare con digitalWrite(21,LOW).",
+    "spec_hint": "DIO2 è opzionale per LoRa P2P ma necessario per FSK. VEXT attivo con LOW (logica invertita). Non confondere con Heltec v3 che ha SX1262 e pin diversi.",
+    "hardware_quirk": "Heltec v2: alimentazione 3.3V ai sensori tramite VEXT. Senza digitalWrite(21,LOW) i sensori I2C collegati al connettore esterno non si alimentano.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "lora_hardware",
+    "lesson": "TTGO LORA32 / LILYGO T3 — PIN LORA SX1276: SCK=5, MISO=19, MOSI=27, NSS=18, RST=14, DIO0=26. Display OLED: SDA=21, SCL=22. Versioni v1.0/v1.6/v2.0 hanno pin leggermente diversi — verificare la serigrafia sul PCB.",
+    "spec_hint": "TTGO LoRa32 ha molte revisioni hardware con pin diversi. La versione più comune (v1.6) usa DIO0=26. Il pin RST su alcune versioni è -1 (non connesso). Verificare sempre con il datasheet specifico della revisione.",
+    "hardware_quirk": "T-Beam v1.1 ha AXP192 PMU I2C (addr 0x34) per gestione batteria e alimentazione SX1276. Senza inizializzare AXP192, il GPS e LoRa non si alimentano.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "lora_hardware",
+    "lesson": "HELTEC V3 / LILYGO T3S3 — SX1262 PIN DIVERSI: SCK=9, MISO=11, MOSI=10, NSS=8, RST=12, BUSY=13, DIO1=14. SX1262 ha BUSY pin (non DIO0) — libreria sandeepmistry NON funziona. Usare RadioLib: `SX1262 radio = new Module(8, 14, 12, 13)`.",
+    "spec_hint": "SX1262 e SX1276 sono incompatibili a livello di libreria. Il chip SX1262 ha BUSY pin e reset sequenza diversa. Compilare codice SX1276 su board SX1262 funziona ma il modulo non risponde.",
+    "hardware_quirk": "SX1262 richiede condensatore 100nF su RXEN/TXEN in alcune board. Heltec v3 ha già questo circuito integrato ma alcune board cloni no.",
+    "board": "esp32:esp32:esp32"
+  }
+]

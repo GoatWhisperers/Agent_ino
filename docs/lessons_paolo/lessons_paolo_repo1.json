@@ -1,0 +1,100 @@
+[
+  {
+    "task_type": "non_blocking_timing",
+    "lesson": "USA MILLIS CON TIMESTAMP DEDICATO per task periodici: in `A06_blinkNonBloccante_con_millis.ino` il gate `if ((millis() - t1) > 1000)` con `t1 = millis();` evita blocchi mentre legge il bottone su pin 2.",
+    "spec_hint": "Con `delay(1000)` il loop resta fermo e perdi eventi input mentre il LED lampeggia.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "input_pullup_logic",
+    "lesson": "CON INPUT_PULLUP INVERTI LA LOGICA DEL TASTO: usa `pinMode(2, INPUT_PULLUP);` e testa pressione con `if (!digitalRead(2))` come negli sketch L03.",
+    "spec_hint": "Se usi `if (digitalRead(2))` con pull-up interno il comportamento risulta invertito (premuto/rilasciato scambiati).",
+    "hardware_quirk": "Con pulsante verso GND, il livello a riposo e HIGH; premuto diventa LOW.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "button_event_handling",
+    "lesson": "CON ONBUTTON REGISTRA CALLBACK IN SETUP E CHIAMA TICK IN LOOP: `btn.attachClick(hello);`, `btn.attachDoubleClick(hello2);`, `btn.tick();` in `A03_OneButtonTest.ino`.",
+    "spec_hint": "Se `btn.tick()` non gira continuamente, click e double-click non vengono rilevati in modo affidabile.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "wifi_connection_bootstrap",
+    "lesson": "INIZIALIZZA WIFI CON WAIT ESPLICITA PRIMA DI USARE LA RETE: `WiFi.begin(...)` seguito da `while (WiFi.status() != WL_CONNECTED)` in `A03_WiFi_keep.ino` e `A04_HTTPClient.ino`.",
+    "spec_hint": "Se avvii HTTP/MQTT senza attendere `WL_CONNECTED`, chiamate rete falliscono in modo intermittente.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "wifi_reconnect_strategy",
+    "lesson": "GESTISCI DISCONNESSIONI NEL LOOP: in `A03_WiFi_keep.ino` usa `if (WiFi.status() != WL_CONNECTED) { WiFi.disconnect(); WiFi.reconnect(); }` per tentare recovery automatico.",
+    "spec_hint": "Senza ramo di reconnessione la scheda resta offline dopo drop AP e il firmware continua senza telemetria.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "http_client_lifecycle",
+    "lesson": "CHIUDI SEMPRE HTTPCLIENT DOPO LA REQUEST: pattern corretto `HTTPClient http; http.begin(...); int code = http.GET(); ... http.end();` (visto in `A04_HTTPClient.ino`).",
+    "spec_hint": "Se ometti `http.end()`, socket e risorse restano allocate e dopo molte richieste compaiono errori di connessione.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "webserver_routing",
+    "lesson": "REGISTRA TUTTE LE ROUTE IN SETUP PRIMA DI `server.begin()`: `server.on(...)` e `server.onNotFound(pageError);` in `A01_WebServer.ino` costruiscono un routing chiaro.",
+    "spec_hint": "Se dichiari route nel `loop()`, aumenti overhead e rischi comportamenti incoerenti al runtime.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "webserver_loop_pumping",
+    "lesson": "POMPA IL WEB SERVER IN LOOP: `server.handleClient();` deve girare a ogni ciclo (in `A01_WebServer.ino`) con pause minime (`delay(2)`).",
+    "spec_hint": "Se il loop è bloccato da delay lunghi, le richieste HTTP arrivano in timeout o con latenza elevata.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "json_payload_building",
+    "lesson": "PER POST JSON USA `StaticJsonDocument<128>` + `serializeJson(doc, pacchettino)`: in `TrasmettiJson.ino` i campi `tipo_sensore`, `valore`, `tempomisura` sono valorizzati prima della POST.",
+    "spec_hint": "Concatenare JSON a mano porta facilmente a payload malformati e parsing error lato server.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "mqtt_reconnect_loop",
+    "lesson": "CON PUBSUBCLIENT IMPLEMENTA `reconnect()` BLOCCANTE FINO A `client.connected()`: in `ClientMQTT.ino` genera `clientId` con `random(0xffff)` e poi `client.subscribe(topicrx);`.",
+    "spec_hint": "Senza reconnessione esplicita il device non si riallinea al broker dopo perdita rete o broker restart.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "mqtt_runtime_loop",
+    "lesson": "CHIAMA `client.loop()` IN OGNI ITERAZIONE: in `ClientMQTT.ino` è il punto che mantiene viva la sessione MQTT e processa callback `callback(...)`.",
+    "spec_hint": "Se `client.loop()` non gira, keepalive e ricezione topic si interrompono anche se il WiFi è connesso.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "mqtt_json_publish",
+    "lesson": "PUBBLICA MESSAGGI STRUTTURATI CON `StaticJsonDocument<200>`: in `ClientMQTT.ino` prepara `doc[\"id\"]`, `doc[\"value\"]`, `doc[\"ts\"]`, poi `serializeJson(doc, msg)` e `client.publish(topic, msg)`.",
+    "spec_hint": "Payload testuali non strutturati rendono fragile il parsing lato subscriber e complicano la compatibilita tra consumer.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "i2c_discovery",
+    "lesson": "USA SCAN I2C CON `Wire.beginTransmission(address)` + `Wire.endTransmission()` per trovare periferiche (errore `0` = ack) come in `i2cScanner.ino`.",
+    "spec_hint": "Saltare la scansione iniziale fa perdere tempo su indirizzi sbagliati, specialmente con moduli cinesi configurati diversamente.",
+    "hardware_quirk": "Molti OLED SSD1306 usano 0x3C, alcuni 0x3D; verifica sempre con scanner.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "oled_init_guard",
+    "lesson": "VALIDA L'INIT SSD1306 E BLOCCA IN ERRORE: `if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) { for(;;); }` in `A01-I2C_DisplayOled.ino` evita stato undefined.",
+    "spec_hint": "Se prosegui senza display inizializzato, il loop continua ma I2C/display possono produrre output casuale o freeze.",
+    "hardware_quirk": "Alimentazione e indirizzo I2C errati causano fallimento immediato di `display.begin(...)`.",
+    "board": "arduino:avr:uno"
+  }
+]

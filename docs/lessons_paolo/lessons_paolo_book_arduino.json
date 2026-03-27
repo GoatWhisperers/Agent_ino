@@ -1,0 +1,86 @@
+[
+  {
+    "task_type": "debounce_guard",
+    "lesson": "USA UNA FINESTRA DI DEBOUNCE ESPLICITA: `const unsigned long debounce_delay = 200` e guardia `if ((millis()-t) > debounce_delay)` in `A010_Debounce.ino`.",
+    "spec_hint": "Senza debounce, una sola pressione produce piu commutazioni dello stato LED.",
+    "hardware_quirk": "Rimbalzo meccanico del tasto e inevitabile su pulsanti economici.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "state_toggle_pattern",
+    "lesson": "MANTIENE LO STATO APPLICATIVO IN VARIABILE DEDICATA: `stato_led = !stato_led;` e poi `digitalWrite(3, stato_led);` in `A009_Button_con_stato.ino`.",
+    "spec_hint": "Pilotare il pin senza stato logico separato rende difficile gestire transizioni e logica estesa.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "external_interrupt_binding",
+    "lesson": "ASSOCIA INTERRUPT CON `digitalPinToInterrupt(pin)`: `attachInterrupt(digitalPinToInterrupt(3), cambia, FALLING)` in `A001_Interrupt.ino`.",
+    "spec_hint": "Usare numeri interrupt hardcoded riduce portabilita tra board e genera mismatch pin/interrupt.",
+    "hardware_quirk": "Su UNO gli external interrupt hardware sono solo su pin 2 e 3.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "volatile_shared_state",
+    "lesson": "LE VARIABILI MODIFICATE DA ISR DEVONO ESSERE `volatile`: in `A001_Interrupt.ino` `volatile int stato` e in timer/watchdog `volatile int tick/flag`.",
+    "spec_hint": "Senza volatile il compilatore puo ottimizzare letture/scritture e ignorare aggiornamenti ISR.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "timer_register_config",
+    "lesson": "CONFIGURA TIMER1 IN MODO DETERMINISTICO CON REGISTRI: `TCCR1A`, `TCCR1B`, `TCNT1`, `TIMSK1` tra `cli()`/`sei()` in `A010_Timer.ino`.",
+    "spec_hint": "Configurazione parziale dei registri timer porta frequenze inattese e interrupt erratici.",
+    "hardware_quirk": "Timer1 e a 16 bit su AVR UNO; prescaler influenza direttamente periodo.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "timer_ctc_mode",
+    "lesson": "PER PERIODI PRECISI USA CTC: in `A011_Timer_preciso.ino` imposta `OCR1A`, abilita bit WGM con `TCCR1B |= 0b00001000` e ISR `TIMER1_COMPA_vect`.",
+    "spec_hint": "In overflow puro il periodo dipende da rollover completo e risulta meno controllabile.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "watchdog_interrupt_mode",
+    "lesson": "USA WATCHDOG IN MODALITA INTERRUPT: in `A012_WatchDog.ino` `WDTCSR = ((1<<WDIE)| (1<<WDP2) | (1<<WDP1))` e ISR `WDT_vect` che setta `flag`.",
+    "spec_hint": "Se abiliti reset mode invece di interrupt rischi reboot continui invece di wake periodico.",
+    "hardware_quirk": "Il timeout watchdog dipende dai bit prescaler WDP.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "sleep_interrupt_wakeup",
+    "lesson": "ENTRA IN SLEEP SOLO DOPO AVER AGGANCIATO IL WAKEUP: in `A013_Sleep.ino` prima `attachInterrupt(...)`, poi `set_sleep_mode(SLEEP_MODE_PWR_DOWN)`, `sleep_enable()`, `sleep_mode()`.",
+    "spec_hint": "Se l'interrupt non e armato prima dello sleep, la MCU puo non risvegliarsi.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "sleepwatchdog_cycle",
+    "lesson": "COMBINA WATCHDOG E SLEEP CON FLAG: in `A015_SleepWatchdog.ino` ISR `WDT_vect` imposta `watchdog=1`, il loop togglea LED e richiama `enterSleep()`.",
+    "spec_hint": "Senza flag di sincronizzazione tra ISR e loop si perdono eventi o si duplicano azioni.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "eeprom_structured_access",
+    "lesson": "USA `EEPROM.put()`/`EEPROM.get()` CON STEP `sizeof(tipo)`: in `A005_EEPROM_put_get.ino` il `for` incrementa di `sizeof(int)` per evitare overlap dei dati.",
+    "spec_hint": "Scrivere indirizzi consecutivi byte-a-byte con tipi multi-byte corrompe i valori successivi.",
+    "hardware_quirk": "La EEPROM AVR ha cicli di scrittura limitati: riduci write inutili.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "ethernet_http_request",
+    "lesson": "NEL CLIENT ETHERNET INVIA SEMPRE HEADERS MINIMI HTTP/1.1: in `A008_HttpClient.ino` usa `GET ...`, `Host: ...`, `Connection: close` prima di leggere `client.available()`.",
+    "spec_hint": "Richieste incomplete possono essere rifiutate dal server o lasciare la connessione appesa.",
+    "hardware_quirk": "Con W5500 e utile chiudere con `client.stop()` appena il server disconnette.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "wifi_connect_loop",
+    "lesson": "PER CONNESSIONE WIFI BLOCCANTE E STABILE USA `while (WiFi.status() != WL_CONNECTED)` dopo `WiFi.begin(...)` come in `A010_simpleWiFiConnection.ino`.",
+    "spec_hint": "Se procedi prima della connessione, IP/RSSI non sono validi e le operazioni rete falliscono.",
+    "hardware_quirk": null,
+    "board": ""
+  }
+]

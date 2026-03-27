@@ -1,0 +1,49 @@
+Genera UNO sketch Arduino .ino completo e compilabile per ESP32 (board: esp32:esp32:esp32). 
+Output: SOLO codice, niente spiegazioni.
+
+HARDWARE E PIN (OBBLIGATORI):
+- OLED SSD1306 128x64 I2C:
+  - SDA = GPIO21
+  - SCL = GPIO22
+  - I2C address = 0x3C
+  - reset pin = -1
+- Sensore DHT11 (modulo 3 pin con DATA chiamato D0):
+  - VCC = 3V3
+  - GND = GND
+  - D0(DATA) = GPIO27
+
+LIBRERIE OBBLIGATORIE (usa esattamente queste):
+- #include <Wire.h>
+- #include <Adafruit_GFX.h>
+- #include <Adafruit_SSD1306.h>
+- #include <DHTesp.h>
+
+VINCOLI DI IMPLEMENTAZIONE:
+1) Serial.begin(115200) in setup.
+2) Inizializza OLED correttamente (128x64, address 0x3C) e DHT11 su GPIO27.
+3) Nessun uso di delay() > 20 ms. Aggiornamento sensore/display ogni 2000 ms con millis().
+4) Leggi temperatura (°C) e umidità (%) con DHTesp.
+5) Se lettura non valida (NaN o errore), mostra su OLED:
+   - riga 1: "Errore sensore"
+   - riga 2: "Controlla D0/VCC/GND"
+   e stampa errore su Serial; continua il loop.
+6) In condizioni normali, disegna su OLED:
+   - Titolo piccolo in alto: "DHT11 Monitor"
+   - Temperatura in testo grande: "T: xx.x C"
+   - Umidità numerica: "H: yy.y %"
+   - Un quadrante semicircolare (gauge) per umidità 0..100 con:
+     - arco semicircolare
+     - tacche principali (0, 25, 50, 75, 100)
+     - lancetta che punta al valore corrente
+7) La lancetta deve essere clampata tra 0 e 100%.
+8) Schermo pulito e ridisegnato a ogni refresh; evitare sfarfallio e disegni fuori area.
+9) Stampa su Serial a ogni update:
+   - "Temp: <val> C, Hum: <val> %"
+
+QUALITÀ CODICE:
+- Definisci costanti per pin e timing.
+- Crea funzioni dedicate (es. drawGauge, drawLabels, readSensor, showError).
+- Usa solo API disponibili nelle librerie indicate.
+- Deve compilare senza dipendenze extra oltre alle 4 librerie richieste.
+
+Restituisci solo il file .ino completo.

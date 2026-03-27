@@ -1,0 +1,142 @@
+[
+  {
+    "task_type": "bmp280_i2c_bootstrap",
+    "lesson": "INIZIALIZZA IL BUS PRIMA DEL SENSORE: in `BMP280_I2C.ino` la sequenza corretta e `Wire.begin();` poi `bmx280.begin();` con `BMx280I2C bmx280(I2C_ADDRESS);`.",
+    "spec_hint": "Chiamare `bmx280.begin()` senza bus I2C pronto porta a init fallita o letture nulle.",
+    "hardware_quirk": "I moduli BMx280 I2C usano tipicamente indirizzo `0x76` o `0x77`.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "bmp280_oversampling_enable",
+    "lesson": "DOPO `bmx280.resetToDefaults()` RIABILITA LE MISURE: usa `writeOversamplingPressure(...)` e `writeOversamplingTemperature(...)` (piu `writeOversamplingHumidity(...)` se `isBME280()`).",
+    "spec_hint": "Con oversampling a zero il sensing resta disabilitato e `measure()` non produce dati utili.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "bme280_conditional_humidity",
+    "lesson": "LEGGI UMIDITA SOLO SU BME280: in `BMP280_I2C.ino` usa `if (bmx280.isBME280()) { ... bmx280.getHumidity(); }`.",
+    "spec_hint": "Chiedere umidita su un BMP280 puro genera valori non validi o API non coerenti.",
+    "hardware_quirk": "BMP280 non integra sensore umidita, BME280 si.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "bmp280_measure_ready_gate",
+    "lesson": "RISPETTA IL CICLO MISURA-READY: in `BMP280_I2C.ino` fai `bmx280.measure();` poi attendi `while (!bmx280.hasValue())` prima di `getPressure()`/`getTemperature()`.",
+    "spec_hint": "Leggere subito dopo `measure()` puo restituire dati vecchi o parziali.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "adafruit_bmp280_address_chipid",
+    "lesson": "CON LIBRERIA ADAFRUIT PASSA INDIRIZZO E CHIPID: in `progetto_LCD_BMP280.ino` usa `bmp.begin(0x76, 0x60)` prima di qualsiasi `getEvent()`.",
+    "spec_hint": "Se indirizzo/chipid non coincidono col modulo, init fallisce e la UI mostra valori non aggiornati.",
+    "hardware_quirk": "Il chip BMP280 risponde con ID `0x60`.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "adafruit_bmp280_sampling_profile",
+    "lesson": "IMPOSTA IL PROFILO DI CAMPIONAMENTO CON `bmp.setSampling(...)`: in esempio usa `MODE_NORMAL`, `SAMPLING_X2`, `SAMPLING_X16`, `FILTER_X16`, `STANDBY_MS_500`.",
+    "spec_hint": "Senza profilo esplicito puoi avere rumore alto o latenza non adatta al tuo refresh display.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "adafruit_sensor_event_api",
+    "lesson": "CON ADAFRUIT SENSOR USA EVENTI: `sensors_event_t temp_event, pressure_event; bmp_temp->getEvent(&temp_event); bmp_pressure->getEvent(&pressure_event);`.",
+    "spec_hint": "Leggere campi non aggiornati senza `getEvent()` porta a telemetria incoerente tra temperatura e pressione.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "mpu6050_init_and_probe",
+    "lesson": "SU MPU6050 ESEGUI INIT + PROBE: `accelgyro.initialize();` e verifica con `accelgyro.testConnection()` come in `misura_urti.ino`.",
+    "spec_hint": "Senza check connessione puoi interpretare come movimento dati I2C invalidi.",
+    "hardware_quirk": "Indirizzo tipico `0x68` (AD0 LOW), alternativo `0x69` (AD0 HIGH).",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "mpu6050_raw_accel_pipeline",
+    "lesson": "PER IMPATTI LEGGI ACCEL RAW CON `getAcceleration(&ax,&ay,&az)` E DERIVA MAGNITUDO: `magn = sqrt(x*x + y*y + z*z)`; poi delta `bump = abs(magn - pmagn)`.",
+    "spec_hint": "Usare singolo asse senza magnitudo rende la rilevazione dipendente dall'orientamento del sensore.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "mpu6050_offset_calibration",
+    "lesson": "CALIBRA GLI OFFSET GYRO QUANDO NECESSARIO: `setXGyroOffset(...)`, `setYGyroOffset(...)`, `setZGyroOffset(...)` (commentati in `misura_urti.ino`).",
+    "spec_hint": "Senza calibrazione il bias del sensore sposta le soglie e aumenta falsi positivi nei trigger.",
+    "hardware_quirk": "I valori offset cambiano da modulo a modulo.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "mpu6050_motion6_roll_pitch",
+    "lesson": "PER ORIENTAMENTO LEGGI 6 ASSI CON `accelgyro.getMotion6(&ax,&ay,&az,&gx,&gy,&gz)` e calcola angoli con funzione dedicata (`accToAngle(...)`).",
+    "spec_hint": "Mescolare formule senza convenzione assi produce roll/pitch invertiti o non stabili.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "oled_update_rate_limit",
+    "lesson": "LIMITA IL REFRESH DISPLAY CON `millis()`: in `bolla.ino` aggiorna grafica solo se `(millis() - t1) > 100`, poi `t1 = millis()`.",
+    "spec_hint": "Ridisegnare a ogni ciclo saturando I2C rende UI lenta e peggiora la latenza sensore.",
+    "hardware_quirk": "OLED I2C 128x64 ha banda limitata rispetto al loop MCU.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "mpu6050_interrupt_register_setup",
+    "lesson": "PER WAKEUP DA MOVIMENTO CONFIGURA REGISTRI MPU VIA `writeByte(...)`: `MOT_THR`, `MOT_DUR`, `MOT_DETECT_CTRL`, `INT_ENABLE` come in `test_MPU_Interrupt_FUNZIONA.ino`.",
+    "spec_hint": "Senza setup completo l'interrupt motion non scatta o resta instabile.",
+    "hardware_quirk": "Il pin INT del MPU6050 dipende dalla polarita configurata nel registro `0x37`.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "mpu6050_sleep_wakeup_isr",
+    "lesson": "SU AVR COMBINA SLEEP + INTERRUPT: `attachInterrupt(digitalPinToInterrupt(2), wakeUpNow, LOW); set_sleep_mode(SLEEP_MODE_PWR_DOWN); sleep_mode();`.",
+    "spec_hint": "Entrare in sleep senza interrupt armato lascia il sistema bloccato fino a reset esterno.",
+    "hardware_quirk": "Su UNO il wakeup esterno affidabile e sui pin interrupt hardware.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "i2c_register_read_restart",
+    "lesson": "PER LEGGERE REGISTRI I2C USA REPEATED START: nel helper `readByte(...)` fa `Wire.endTransmission(false); Wire.requestFrom(address, (uint8_t)1);`.",
+    "spec_hint": "Se chiudi con stop pieno tra write/read alcuni device non mantengono il puntatore registro.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "stepper_state_machine_control",
+    "lesson": "PER DRIVER STEP/DIR GESTISCI IL FLUSSO CON FSM: in `SK021 stepper.ino` usa `enum stati {fermo, abilita, disabilita, attivo}` e transizioni via `go(...)`.",
+    "spec_hint": "Senza stati espliciti i comandi start/stop/direzione si intrecciano e creano corse inattese.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "stepper_enable_direction_step_pins",
+    "lesson": "MANTIENI RUOLI PIN DISTINTI SU DRIVER: nello sketch SK021 `pin 2`=STEP (toggle), `pin 3`=DIR, `pin 4`=ENA con `digitalWrite(4, LOW/HIGH)` per enable/disable.",
+    "spec_hint": "Confondere ENA/DIR/STEP porta a motore fermo, vibrazione o direzione errata.",
+    "hardware_quirk": "Pattern STEP/DIR/ENA e tipico di driver A4988/TMC2208 su CNC shield.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "stepper_nonblocking_step_pulse",
+    "lesson": "GENERA STEP PERIODICI CON TIMER SOFTWARE: in stato `attivo` usa `if ((millis() - t1) > tstep) { digitalWrite(2, !digitalRead(2)); t1 = millis(); }`.",
+    "spec_hint": "Usare delay lunghi sui passi blocca input pulsanti e rende ingestibile il cambio direzione.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "stepper_timer2_fast_pwm",
+    "lesson": "PER ALTE VELOCITA STEP USA TIMER2 HARDWARE: in `fastPwm_stepper.ino` configura `TCCR2A/TCCR2B`, `OCR2A` (TOP) e `OCR2B` (duty) per uscita PWM su pin `3` (OC2B).",
+    "spec_hint": "Generare impulsi STEP solo da loop software limita frequenza e stabilita del moto.",
+    "hardware_quirk": "Config timer dipende da MCU AVR; cambia su altre architetture.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "stepper_step_count_isr",
+    "lesson": "CONTA PASSI IN ISR TIMER: in `pwm_stepper_contapassi.ino` `ISR(TIMER2_COMPA_vect)` incrementa `volatile unsigned long stepCount` e cambia `DIR` con `digitalWrite(6, !digitalRead(6))` a soglia.",
+    "spec_hint": "Senza contatore interrupt non sai quanti step reali sono stati emessi dal generatore PWM.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  }
+]

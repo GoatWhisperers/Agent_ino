@@ -1,0 +1,86 @@
+[
+  {
+    "task_type": "deep_sleep_esp32",
+    "lesson": "DEEP SLEEP TIMER: usa `esp_sleep_enable_timer_wakeup(secondi * 1000000ULL)` poi `esp_deep_sleep_start()`. Definisci `#define uS_TO_S_FACTOR 1000000ULL` per la conversione. Chiama `Serial.flush()` prima del sleep per svuotare il buffer seriale.",
+    "spec_hint": "Senza Serial.flush() prima di esp_deep_sleep_start(), gli ultimi messaggi seriali vengono persi. Il fattore è ULL (unsigned long long) non semplice int.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "deep_sleep_esp32",
+    "lesson": "RTC_DATA_ATTR PER VARIABILI PERSISTENTI: dichiara `RTC_DATA_ATTR int bootCount = 0;` per variabili che sopravvivono al deep sleep. La RAM RTC rimane alimentata durante il sleep. Usa `esp_sleep_get_wakeup_cause()` per sapere perché si è svegliato.",
+    "spec_hint": "Variabili normali (non RTC_DATA_ATTR) si azzerano ad ogni wakeup perché il chip riavvia. Senza RTC_DATA_ATTR non puoi contare i boot o ricordare stato.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "deep_sleep_esp32",
+    "lesson": "WAKEUP ESTERNO EXT1 PIN BITMASK: per wakeup da GPIO usa bitmask `#define BUTTON_PIN_BITMASK (1ULL << 33)` (2^pinnumber). Solo pin RTC possono fare wakeup: GPIO 0,2,4,12-15,25-27,32-39. Chiama `esp_sleep_enable_ext1_wakeup(BITMASK, ESP_EXT1_WAKEUP_ANY_HIGH)`.",
+    "spec_hint": "Pin non-RTC (es GPIO 5,18,19,21,22,23) NON funzionano come sorgente wakeup esterno. Errore silenzioso: il chip entra in sleep e non si risveglia mai.",
+    "hardware_quirk": "GPIO 33 richiede pull-down 10K esterno per EXT1 wakeup affidabile",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "freertos_esp32",
+    "lesson": "DUAL CORE xTaskCreatePinnedToCore: crea task su core specifico con `xTaskCreatePinnedToCore(funzione, \"nome\", stackSize, param, priorità, &taskHandle, coreID)`. Core 0 = protocolli WiFi/BT, Core 1 = default Arduino. Stack minimo 10000 bytes per task con Serial.",
+    "spec_hint": "Usare xTaskCreate (senza PinnedToCore) lascia lo scheduler scegliere il core. Con WiFi attivo, mettere il task WiFi su core 0 evita conflitti con il protocollo stack.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "freertos_esp32",
+    "lesson": "TASK LOOP INFINITO OBBLIGATORIO: ogni task FreeRTOS deve avere un `for(;;){}` o `while(true){}` infinito. Se la funzione torna, il sistema crasha con panic. Usa `vTaskDelay(pdMS_TO_TICKS(ms))` invece di delay() dentro i task FreeRTOS.",
+    "spec_hint": "delay() dentro un task FreeRTOS funziona ma blocca il core. vTaskDelay cede il controllo allo scheduler permettendo ad altri task di girare. Task senza loop infinito = crash garantito.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "eeprom_esp32",
+    "lesson": "EEPROM ESP32 RICHIEDE begin(): chiama sempre `EEPROM.begin(dimensione_bytes)` in setup() prima di qualsiasi read/write. Su ESP32 EEPROM è emulata in flash. Usa `EEPROM.commit()` dopo ogni write per salvare fisicamente (non serve su AVR).",
+    "spec_hint": "Su Arduino AVR EEPROM.begin() non esiste e le write sono immediate. Su ESP32 senza EEPROM.commit() le modifiche vengono perse al prossimo riavvio. Bug silenzioso difficile da diagnosticare.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "wifi_esp32",
+    "lesson": "WIFI CONNECTION PATTERN: usa `WiFi.begin(ssid, password)` poi loop `while(WiFi.status() != WL_CONNECTED) { delay(500); Serial.print(\".\"); }`. Controlla `WiFi.status() == WL_CONNECTED` prima di ogni richiesta HTTP per evitare crash.",
+    "spec_hint": "Chiamare HTTPClient.begin() con WiFi disconnesso causa exception/crash. Aggiungere sempre il check WiFi.status() prima delle chiamate HTTP è la differenza tra codice robusto e fragile.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "wifi_esp32",
+    "lesson": "HTTP GET CON HTTPClient: `HTTPClient http; http.begin(url); int code = http.GET(); if(code>0){ String payload = http.getString(); } http.end();`. SEMPRE chiamare `http.end()` anche in caso di errore per liberare la connessione.",
+    "spec_hint": "Dimenticare http.end() causa memory leak e dopo ~50 richieste il chip esaurisce i socket disponibili e crasha. Pattern corretto: begin → GET → getString → end.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "wifi_esp32",
+    "lesson": "TIMER NON BLOCCANTE PER HTTP: usa `if((millis() - lastTime) > timerDelay)` per chiamate HTTP periodiche. NON usare delay() tra le chiamate. Aggiorna `lastTime = millis()` dentro il blocco if dopo ogni chiamata.",
+    "spec_hint": "delay() tra chiamate HTTP blocca tutto il loop() impedendo letture sensori e altri task. Il pattern millis() permette al loop di girare continuamente mentre aspetta il timer.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "ble_esp32",
+    "lesson": "BLE SERVER CALLBACKS: implementa `class MyCallbacks: public BLEServerCallbacks` con `onConnect()` e `onDisconnect()` per gestire connessioni. Imposta con `pServer->setCallbacks(new MyCallbacks())`. Usa flag `deviceConnected` per sapere se notificare.",
+    "spec_hint": "Chiamare pCharacteristic->notify() senza client connesso non causa crash ma spreca risorse. Il flag deviceConnected permette di inviare notifiche solo quando necessario.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "ble_esp32",
+    "lesson": "BLE UUID STANDARD: usa UUID Bluetooth SIG per servizi standard: `BLEUUID((uint16_t)0x181A)` = Environmental Sensing, `0x2A6E` = Temperature, `0x2A6F` = Humidity. Per servizi custom usa UUID 128-bit stringa: `\"6E400001-B5A3-F393-E0A9-E50E24DCCA9E\"`.",
+    "spec_hint": "UUID uint16_t sono riconosciuti automaticamente da app BLE standard (nRF Connect, LightBlue). UUID custom a 128-bit sono necessari per protocolli proprietari come Nordic UART Service.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "json_esp32",
+    "lesson": "ARDUINO_JSON PARSE E CHECK: `JSONVar obj = JSON.parse(jsonString); if(JSON.typeof(obj) == \"undefined\") { /* errore parse */ }`. Accesso: `String val = (const char*)obj[\"campo\"]`. Libreria: Arduino_JSON (non ArduinoJson — diversa API).",
+    "spec_hint": "ArduinoJson (Benoît Blanchon) e Arduino_JSON (Arduino ufficiale) hanno API completamente diverse. Confonderle causa errori di compilazione. Arduino_JSON usa JSONVar, ArduinoJson usa JsonDocument.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  }
+]

@@ -1,0 +1,65 @@
+[
+  {
+    "task_type": "neopixel_ws2812",
+    "lesson": "NEOPIXEL INIT E SHOW: `Adafruit_NeoPixel pixels(NUM_PIX, PIN, NEO_GRB + NEO_KHZ800); pixels.begin();`. Imposta colore con `pixels.setPixelColor(i, pixels.Color(r,g,b))`. SEMPRE chiamare `pixels.show()` dopo ogni modifica altrimenti i LED non si aggiornano.",
+    "spec_hint": "Dimenticare pixels.show() è il bug più comune con NeoPixel — i colori sembrano impostati ma non appaiono. Ogni pixels.setPixelColor() modifica solo il buffer interno.",
+    "hardware_quirk": "Su AVR (<16MHz) aggiungere #include <avr/power.h> e clock_prescale_set(clock_div_1) per timing corretto NeoPixel",
+    "board": ""
+  },
+  {
+    "task_type": "neopixel_ws2812",
+    "lesson": "NEOPIXEL SPEGNI TUTTO: per spegnere tutti i LED usa loop `for(int i=0;i<NUM;i++) pixels.setPixelColor(i, pixels.Color(0,0,0));` poi `pixels.show()`. NON esiste metodo clear() in Adafruit_NeoPixel legacy — con versioni recenti esiste `pixels.clear()`.",
+    "spec_hint": "Con versioni vecchie della libreria Adafruit_NeoPixel, pixels.clear() non compila. Il pattern sicuro è sempre il loop con Color(0,0,0).",
+    "hardware_quirk": null,
+    "board": ""
+  },
+  {
+    "task_type": "servo_motor",
+    "lesson": "SERVO ATTACH E WRITE: `#include <Servo.h>; Servo s; s.attach(pin);` in setup(). `s.write(angolo)` con angolo 0-180 gradi. Aggiungi `delay(15-20)` dopo ogni write per dare tempo al servo di raggiungere la posizione prima del comando successivo.",
+    "spec_hint": "Senza delay dopo write, comandi ravvicinati saltano posizioni intermedie. Il servo ha una velocità massima (~60°/300ms) — comandi troppo rapidi causano jitter o step ignorati.",
+    "hardware_quirk": "Servo a 360° (rotazione continua): write(90)=stop, write(0)=piena velocità oraria, write(180)=piena velocità antioraria. Diverso dai servo standard!",
+    "board": ""
+  },
+  {
+    "task_type": "servo_motor",
+    "lesson": "MULTI-SERVO CON PCA9685: per >2 servo usa driver I2C `Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver()` (addr 0x40). `pwm.begin(); pwm.setPWMFreq(60);` in setup. `pwm.setPWM(canale, 0, pulse)` con SERVOMIN=150 e SERVOMAX=600 come valori tipici.",
+    "spec_hint": "Collegare >2 servo direttamente all'Arduino causa brownout (calo tensione) per eccesso di corrente. Il PCA9685 ha la sua alimentazione separata per i servo.",
+    "hardware_quirk": "SERVOMIN/SERVOMAX variano tra marche di servo — calibrare con trial and error. Valori troppo estremi possono bruciare il servo (fine corsa meccanico).",
+    "board": ""
+  },
+  {
+    "task_type": "dht_sensor",
+    "lesson": "DHT11/DHT22 CON SimpleDHT: `#include <SimpleDHT.h>; SimpleDHT11 dht; byte temp,umid; int err; if((err=dht.read(pin,&temp,&umid,NULL))!=SimpleDHTErrSuccess){ /* gestisci errore */ }`. Sampling rate DHT11=1Hz — delay(1500) minimo tra letture.",
+    "spec_hint": "Leggere DHT più veloce di 1Hz (DHT11) o 0.5Hz (DHT22) restituisce valori stantii o errori. Il sensore ha un buffer interno che si aggiorna lentamente.",
+    "hardware_quirk": "DHT11: range 0-50°C ±2°C, umidità 20-80% ±5%. DHT22: range -40/80°C ±0.5°C, umidità 0-100% ±2-5%. Usare resistenza pull-up 4.7K-10K sul pin DATA.",
+    "board": ""
+  },
+  {
+    "task_type": "pir_sensor",
+    "lesson": "PIR SENSORE MOVIMENTO: `pinMode(pin, INPUT)` poi `digitalRead(pin)` — HIGH=movimento rilevato, LOW=nessun movimento. Il PIR ha un ritardo di warmup di 30-60 secondi al primo accensione. Aggiungere delay(100) minimo nel loop per evitare letture false consecutive.",
+    "spec_hint": "Leggere il PIR senza delay nel loop causa falsi positivi per rimbalzo del segnale. Dopo un HIGH, il sensore mantiene HIGH per un tempo configurabile dal trimmer onboard (5s-5min).",
+    "hardware_quirk": "PIR tipicamente HC-SR501: 3 pin (VCC 5V, GND, OUT). Due trimmer: sensibilità e ritardo. Potere di rilevamento 120°, distanza 3-7m.",
+    "board": ""
+  },
+  {
+    "task_type": "nrf24_wireless",
+    "lesson": "NRF24L01 SETUP BIDIREZIONALE: `RF24 radio(CE_pin, CSN_pin); radio.begin(); radio.openWritingPipe(addr2); radio.openReadingPipe(1, addr1); radio.setPALevel(RF24_PA_MIN);`. Per TX: `radio.stopListening(); radio.write(&data, size);`. Per RX: `radio.startListening(); while(radio.available()) radio.read(&data, size);`",
+    "spec_hint": "Confondere il ruolo TX/RX nelle openWritingPipe/openReadingPipe è il bug più comune. TX apre la pipe di scrittura sull'indirizzo del RX, e legge dalla pipe del TX stesso. Invertire causa comunicazione a senso unico.",
+    "hardware_quirk": "NRF24L01 usa SPI + CE (pin digitale) + CSN (chip select). Aggiungere condensatore 100µF tra VCC e GND per stabilizzare l'alimentazione — senza di esso si disconnette frequentemente.",
+    "board": ""
+  },
+  {
+    "task_type": "ir_remote",
+    "lesson": "IR RECEIVER CON IRremote: `#include <IRremote.h>; IRrecv irrecv(pin); decode_results results; irrecv.enableIRIn();` in setup. Nel loop: `if(irrecv.decode(&results)){ Serial.println(results.value, HEX); irrecv.resume(); }`. SEMPRE chiamare `irrecv.resume()` dopo ogni decode.",
+    "spec_hint": "Dimenticare irrecv.resume() fa sì che il ricevitore si blocchi dopo il primo codice — non riceve più nulla. Il resume riabilita il buffer per il prossimo segnale IR.",
+    "hardware_quirk": "IRremote v3.x ha API diversa da v2.x: usa IrReceiver.decode() e IrReceiver.resume(). I codici dei telecomandi variano per marca — usare lo sketch di lettura per mappare i tasti.",
+    "board": ""
+  },
+  {
+    "task_type": "neopixel_ws2812",
+    "lesson": "NEOPIXEL ANIMAZIONE CHASE: per animazione un pixel alla volta, impostare tutti i pixel a nero poi accendere solo il pixel corrente: `pixels.clear(); pixels.setPixelColor(i % NUM, pixels.Color(r,g,b)); pixels.show(); delay(ms);` con i che incrementa nel loop.",
+    "spec_hint": "Senza clear() prima di setPixelColor(), i pixel precedenti rimangono accesi — il LED 'corre' lasciando scia. Questo può essere intenzionale (scia) o indesiderato dipende dall'effetto voluto.",
+    "hardware_quirk": null,
+    "board": ""
+  }
+]

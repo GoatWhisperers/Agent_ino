@@ -1,0 +1,58 @@
+[
+  {
+    "task_type": "async_web_server",
+    "lesson": "ASYNC WEB SERVER HTML IN PROGMEM: memorizza HTML statico con `const char html[] PROGMEM = R\"rawliteral(...)rawliteral\";`. Usa placeholder `%VARIABILE%` nel HTML + funzione `processor(const String& var)` per sostituirli dinamicamente. Include AsyncTCP + ESPAsyncWebServer.",
+    "spec_hint": "Senza PROGMEM il grande HTML occupa RAM dinamica causando heap fragmentation. Il pattern rawliteral evita problemi di escaping con virgolette nel HTML.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "async_web_server",
+    "lesson": "ASYNC SERVER ROUTE HANDLER: `server.on(\"/update\", HTTP_GET, [](AsyncWebServerRequest *request){ String val = request->getParam(\"output\")->value(); request->send(200); });`. Chiama `server.begin()` una sola volta in setup(). NON usare WebServer standard con ESP32 sotto carico.",
+    "spec_hint": "WebServer.h bloccante crasha con richieste multiple simultanee. ESPAsyncWebServer gestisce richieste in interrupt context — NON chiamare delay() o operazioni bloccanti dentro i callback.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "deep_sleep_esp32",
+    "lesson": "TOUCH WAKEUP ESP32: `touchAttachInterrupt(T0, callback, THRESHOLD)` poi `esp_sleep_enable_touchpad_wakeup()`. THRESHOLD su ESP32 originale ~40 (valore capacitivo, più alto = più sensibile), su ESP32-S2/S3 ~5000 (invertito). Usa `esp_sleep_get_touchpad_wakeup_status()` per sapere quale pin.",
+    "spec_hint": "Il threshold è invertito tra ESP32 e ESP32-S2/S3 — codice che funziona su uno non funziona sull'altro. Usa #ifdef CONFIG_IDF_TARGET_ESP32 per distinguere le varianti.",
+    "hardware_quirk": "Touch GPIO ESP32: T0=GPIO4, T1=GPIO0, T2=GPIO2, T3=GPIO15, T4=GPIO13, T5=GPIO12, T6=GPIO14, T7=GPIO27, T8=GPIO33, T9=GPIO32",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "freertos_esp32",
+    "lesson": "CORE ID RUNTIME: usa `xPortGetCoreID()` per sapere su quale core sta girando il codice corrente. setup() e loop() girano su Core 1 per default. Utile per debug: `Serial.print(\"Core: \"); Serial.println(xPortGetCoreID());`",
+    "spec_hint": "Assumere che tutto giri su Core 1 è corretto per codice Arduino standard, ma con xTaskCreatePinnedToCore il task può essere su Core 0. Bug sottile: WiFi internamente usa Core 0 e può interferire con task non-pinned.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "ble_esp32",
+    "lesson": "BLE SETUP SEQUENZA OBBLIGATORIA: 1) BLEDevice::init(\"nome\") 2) createServer() + setCallbacks() 3) createService(UUID) 4) createCharacteristic(UUID, PROPERTY_NOTIFY|PROPERTY_READ) 5) addDescriptor(new BLE2902()) 6) service->start() 7) BLEDevice::startAdvertising(). Ordine non rispettato = crash.",
+    "spec_hint": "Dimenticare BLE2902 descriptor causa che le notifiche non arrivano al client anche se il codice compila. BLE2902 è il Client Characteristic Configuration Descriptor che abilita le notifiche lato client.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "ble_esp32",
+    "lesson": "BLE RECONNECT PATTERN: dopo disconnect, advertise di nuovo con `if(!deviceConnected && oldDeviceConnected){ pServer->startAdvertising(); oldDeviceConnected=false; }`. Traccia `oldDeviceConnected` per rilevare la transizione connected→disconnected e riavviare advertising.",
+    "spec_hint": "Senza riavviare advertising dopo disconnect il dispositivo diventa invisibile e non si può più connettere. Pattern standard: if(deviceConnected != oldDeviceConnected) gestisce entrambe le transizioni.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "wifi_esp32",
+    "lesson": "IP STATICO ESP32: prima di WiFi.begin() imposta `WiFi.config(IPAddress(192,168,1,100), gateway, subnet, dns1)`. IPAddress si costruisce con 4 byte separati da virgola, NON stringa. Se vuoi DHCP non chiamare WiFi.config().",
+    "spec_hint": "Passare una stringa IP invece di IPAddress(...) compila ma assegna IP sbagliato (0.0.0.0 o casuale). Il costruttore IPAddress richiede 4 valori uint8_t separati da virgola.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "wifi_esp32",
+    "lesson": "HTTPS CON WiFiClientSecure: `WiFiClientSecure client; client.setInsecure();` per HTTPS senza verifica certificato (test only). Per produzione: `client.setCACert(root_ca_pem)`. `HTTPClient https; https.begin(client, url);` poi `https.GET()`.",
+    "spec_hint": "setInsecure() è accettabile per prototipazione ma NON per produzione — vulnerabile a MITM. La root CA PEM si trova in openssl o nel browser → Certificato → Export. Il PEM deve iniziare con -----BEGIN CERTIFICATE-----",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  }
+]

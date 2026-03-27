@@ -1,0 +1,79 @@
+[
+  {
+    "task_type": "edge_click_counter",
+    "lesson": "CONTA CLICK SUI FRONTI, NON SUL LIVELLO: in `01_conta_click.ino` usa `if (!prev_tasto && tasto)` e `if (prev_tasto && !tasto)` con `prev_tasto` aggiornato ogni ciclo.",
+    "spec_hint": "Contare mentre il tasto resta premuto sovrastima il numero click e rompe la logica.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "time_window_gesture",
+    "lesson": "IMPLEMENTA GESTI MULTI-CLICK CON FINESTRA TEMPORALE: in `01_conta_click.ino` avvia `conteggio=true` e `t0=millis()`, poi chiude con `if (conteggio && ((millis()-t0) > FINESTRA))`.",
+    "spec_hint": "Senza finestra (`FINESTRA`) non puoi distinguere sequenze di click appartenenti allo stesso input.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "state_machine_flow",
+    "lesson": "DIVIDI IL FLUSSO IN STATI ESPLICITI: `switch (stato)` con `loop_contaclick()`, `loop_accodacifre()`, `loop_callnumber()` in `02_combinatore.ino`.",
+    "spec_hint": "Un unico loop monolitico rende fragili transizioni e reset del contesto (`codice`, `cifre`, `click`).",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "serial_command_dispatch",
+    "lesson": "PER COMANDI SERIALI BREVI USA `switch(ch)`: in `ricevitore_seriale.ino` legge `char ch = SerialS.read()` e dispatcha verso `blink(n)`.",
+    "spec_hint": "Parsing ad-hoc senza dispatch chiaro aumenta errori e comandi non gestiti.",
+    "hardware_quirk": "`SoftwareSerial` su pin 10/11 e sensibile a baud elevati e interrupt concorrenti.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "fingerprint_pipeline",
+    "lesson": "NEL RICONOSCIMENTO IMPRONTA RISPETTA LA PIPELINE `getImage()` -> `image2Tz()` -> `fingerSearch()`: in `fingerprint.ino` ritorna `finger.fingerID` solo su `FINGERPRINT_OK`.",
+    "spec_hint": "Saltare uno step della pipeline causa falsi negativi e ID non affidabili.",
+    "hardware_quirk": "Il sensore e inizializzato con `finger.begin(57600)` via `SoftwareSerial`.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "sensor_heading_normalization",
+    "lesson": "NORMALIZZA L'ANGOLO BUSSOLA IN [0..360]: in `bussola.ino` dopo `a = atan2(y, x) * (180.0/PI)` corregge con `if (a < 0) a = 360 + a;`.",
+    "spec_hint": "Senza normalizzazione, soglie cardinali e mapping LED risultano incoerenti ai cambi di quadrante.",
+    "hardware_quirk": "QMC5883L richiede calibrazione per heading accurato.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "interpolated_led_indicator",
+    "lesson": "SU RING LED INTERPOLA TRA DUE PIXEL ADIACENTI: in `bussola.ino` calcola `id`, `nexid`, `nexlev` e sfuma `leds[id]`/`leds[nexid]`.",
+    "spec_hint": "Se accendi solo un LED discreto l'indicazione angolare salta a gradini e perde precisione percepita.",
+    "hardware_quirk": "Con WS2812 limita corrente con `FastLED.setMaxPowerInVoltsAndMilliamps(5, 500)`.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "oled_init_failfast",
+    "lesson": "PER OLED SSD1306 FALLISCI VELOCEMENTE SU INIT KO: in `ohmetro.ino` usa `if (!display.begin(...)) { for(;;); }` prima di qualsiasi draw.",
+    "spec_hint": "Continuare senza display inizializzato produce output nullo e debug fuorviante.",
+    "hardware_quirk": "Indirizzo I2C tipico 0x3C, non universale.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "analog_measurement_math",
+    "lesson": "CONVERTI ADC IN TENSIONE E SOLO POI APPLICA FORMULE: in `ohmetro.ino` `v1 = map(n,0,1023,0,5000)/1000.0` e `rx = (r1 * (5.0 - v1)) / v1`.",
+    "spec_hint": "Se mischi unita ADC/Volt ottieni resistenze stimate errate e non comparabili.",
+    "hardware_quirk": "Con partitore reale, tolleranza di `r1` impatta direttamente l'accuratezza.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "moving_average_filter",
+    "lesson": "PER SEGNALI PPG USA MEDIA MOBILE SU BUFFER: in `cardiofreq.ino` aggiorna `sum -= reads[ptr]; sum += reader; reads[ptr]=reader; last=sum/samp_siz`.",
+    "spec_hint": "Senza filtraggio le soglie di rilevamento battito oscillano e i BPM diventano instabili.",
+    "hardware_quirk": "Campionamento rapido analogico e sensibile al rumore elettrico del sensore.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "beat_detection_hysteresis",
+    "lesson": "RILEVA BATTITO CON LOGICA DI SALITA + SOGLIA CONTEGGIO: in `cardiofreq.ino` usa `if (last > before)` e attiva evento solo con `rise_count > rise_threshold`.",
+    "spec_hint": "Triggerare su ogni piccola salita produce doppi battiti e BPM falsamente alti.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  }
+]

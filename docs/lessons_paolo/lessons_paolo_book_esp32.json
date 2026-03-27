@@ -1,0 +1,86 @@
+[
+  {
+    "task_type": "non_blocking_timer",
+    "lesson": "USA UN TIMESTAMP `postit1` PER I TASK PERIODICI: in `4_16_timer_non_bloccante.ino` il gate `if ((millis() - postit1) > 1000)` sostituisce `delay()` e mantiene il loop reattivo.",
+    "spec_hint": "Con delay lunghi il firmware non legge input/eventi in tempo e la logica concorrente si blocca.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "interrupt_isr_minimal",
+    "lesson": "NELLE ISR ESP32 USA `IRAM_ATTR` E CODICE MINIMO: `void IRAM_ATTR conteggio(){ count++; }` in `5_15_interrupts.ino` aggiorna solo `volatile int count`.",
+    "spec_hint": "ISR pesanti o non in IRAM possono introdurre lockup, jitter o watchdog reset.",
+    "hardware_quirk": "Su ESP32 alcune ISR devono essere residenti in IRAM per latenza/affidabilita.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "interrupt_sampling_window",
+    "lesson": "SEPARA CONTEGGIO ISR E REPORT NEL LOOP: in `5_15_interrupts.ino` il loop stampa ogni 1s con `if ((millis()-t1) >= 1000)` e poi azzera `count`.",
+    "spec_hint": "Stampare in ISR o leggere senza finestra temporale rende la misura rumorosa e non deterministica.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "debounce_non_blocking",
+    "lesson": "DEBOUNCE A TEMPO CON `millis()` E NON CON DELAY: in `5_18_debouncing.ino` usa `if ((millis()-t) > 1000)` prima di `digitalWrite(4, !digitalRead(4))`.",
+    "spec_hint": "Senza finestra di debounce il rimbalzo del tasto genera piu toggle per una singola pressione.",
+    "hardware_quirk": "Tasti meccanici producono bouncing di pochi ms fino a decine di ms.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "edge_detection",
+    "lesson": "RILEVA FRONTE DI SALITA/DISCESA CON DOPPIA VARIABILE: `tasto` e `prev_tasto` in `5_19_fds_fdd.ino` usando `if (!prev_tasto && tasto)` e `if (prev_tasto && !tasto)`.",
+    "spec_hint": "Leggere solo il livello corrente non distingue evento singolo da livello mantenuto.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "deep_sleep_timer",
+    "lesson": "PRIMA DI ENTRARE IN DEEP SLEEP CONFIGURA LA SORGENTE DI WAKEUP: `esp_sleep_enable_timer_wakeup(SLEEP_DURATION); esp_deep_sleep_start();` in `6_14_deepSleep.ino`.",
+    "spec_hint": "Se non abiliti una wake source valida, il device resta in sleep senza risveglio previsto.",
+    "hardware_quirk": "Il timer wakeup usa microsecondi, non millisecondi.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "deep_sleep_persistence",
+    "lesson": "PER MANTENERE CONTATORI TRA BOOT DA DEEP SLEEP USA `RTC_DATA_ATTR`: in `6_16_TimerSleep.ino` `RTC_DATA_ATTR int count` sopravvive ai reboot da sleep.",
+    "spec_hint": "Variabili normali si azzerano al wakeup e perdi stato storico/sessione.",
+    "hardware_quirk": "Solo memoria RTC mantiene i dati nel deep sleep.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "wakeup_cause_branching",
+    "lesson": "DOPO IL RISVEGLIO BRANCHA SU `esp_sleep_get_wakeup_cause()`: nei listati `6_16_TimerSleep` e `6_17_GPIOSleep` gestisce `ESP_SLEEP_WAKEUP_EXT0`, `ESP_SLEEP_WAKEUP_TIMER`, `ESP_SLEEP_WAKEUP_TOUCHPAD`.",
+    "spec_hint": "Ignorare la causa di wakeup impedisce logica corretta post-risveglio e debugging energetico.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "ext0_wakeup_config",
+    "lesson": "PER RISVEGLIO DA GPIO USA `esp_sleep_enable_ext0_wakeup(GPIO_NUM_14, 1)` come in `6_17_GPIOSleep.ino` e assicurati che il livello atteso corrisponda al cablaggio.",
+    "spec_hint": "Livello di trigger errato (0/1) causa mancato wakeup o wakeup immediato continuo.",
+    "hardware_quirk": "Richiede wiring coerente con pull-down/pull-up reale del pulsante.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "multicore_task_partition",
+    "lesson": "SU ESP32 PARTIZIONA TASK CON `xTaskCreatePinnedToCore(...)`: in `6_21_DualCore.ino` `loop1` gira su core 0 e `loop2` su core 1.",
+    "spec_hint": "Senza separazione, task periodici diversi si disturbano e aumentano jitter/latenza.",
+    "hardware_quirk": "Core pinning utile quando periferiche o timing richiedono isolamento.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "https_tls_certificate",
+    "lesson": "PER HTTPS USA `WiFiClientSecure` + `setCACert(root_ca)`: in `7_11_HTTPS.ino` crea `WiFiClientSecure *client` e poi `https.begin(*client, addr.c_str())`.",
+    "spec_hint": "Senza CA valida, handshake TLS fallisce o la verifica del server e indebolita.",
+    "hardware_quirk": "Certificati occupano RAM/flash: va dimensionata la memoria disponibile.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "webserver_route_design",
+    "lesson": "CON `WebServer server(80)` REGISTRA ROUTE DEDICATE (`server.on(...)`) E CHIAMA `server.handleClient()` nel loop: pattern esplicito in `7_15_WebServerMultiPagina.ino`.",
+    "spec_hint": "Senza `handleClient()` o con routing incompleto, le richieste HTTP restano in timeout o 404 inattesi.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  }
+]

@@ -1,0 +1,107 @@
+[
+  {
+    "task_type": "periodic_http_polling",
+    "lesson": "SCHEDULA LE GET CON `millis()` E NON CON DELAY LUNGHI: in `wifi01_HTTPClient.ino` usa `if ((millis() - t1) > 5000)` e poi `t1 = millis();` dopo la richiesta.",
+    "spec_hint": "Con loop bloccanti perdi controllo sul timing e peggiori la reattivita generale del firmware.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "wifi_guard_before_http",
+    "lesson": "ESEGUI HTTP SOLO CON WIFI ATTIVO: pattern `if (WiFi.status() == WL_CONNECTED) { HTTPClient http; ... } else { WiFi.disconnect(); WiFi.reconnect(); }` in `wifi01_HTTPClient.ino`.",
+    "spec_hint": "Senza guardia su `WL_CONNECTED`, `http.GET()` fallisce spesso con codici negativi e retry inutili.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "https_tls_setup",
+    "lesson": "PER HTTPS SU ESP32 USA `WiFiClientSecure` E CA ROOT: in `wifi01_HTTPS.ino` crea `WiFiClientSecure *client` e chiama `client->setCACert(root_ca)` prima di `https.begin(*client, addr.c_str())`.",
+    "spec_hint": "Senza certificato CA, la connessione TLS puo fallire o essere insicura (MITM non mitigato).",
+    "hardware_quirk": "Il certificato root in flash aumenta uso memoria; su board piccole va dimensionato.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "https_resource_cleanup",
+    "lesson": "CHIUDI SEMPRE LA SESSIONE TLS/HTTP: in `wifi01_HTTPS.ino` dopo `https.GET()` termina con `https.end();` nello stesso ramo di esecuzione.",
+    "spec_hint": "Se non chiudi le richieste HTTPS, accumuli connessioni e frammentazione memoria nel lungo periodo.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "esp32_udp_static_ip",
+    "lesson": "SE VUOI IP FISSO CHIAMA `WiFi.config(ip_scheda, gateway, subnet, DNS1, DNS2)` PRIMA DI `WiFi.begin(...)` come in `serverudp.ino`.",
+    "spec_hint": "Se configuri dopo `WiFi.begin`, la scheda resta su DHCP o entra in stato incoerente rispetto alla rete attesa.",
+    "hardware_quirk": "Gateway/subnet errati rendono il nodo irraggiungibile pur risultando connesso al WiFi.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "udp_receive_hygiene",
+    "lesson": "IN UDP SERVER LEGGI E PULISCI IL BUFFER: in `serverudp.ino` usa `if (udp.read(buffer, 20) > 0)` e poi `memset(buffer, 0, 20);` dopo l'uso.",
+    "spec_hint": "Senza azzerare il buffer puoi stampare residui del pacchetto precedente e diagnosticare dati falsi.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "udp_send_sequence",
+    "lesson": "PER TRASMISSIONE UDP RISPETTA LA TRIADE `udp.beginPacket(...)`, `udp.write(...)`, `udp.endPacket()` come in `clientudp.ino`.",
+    "spec_hint": "Saltare `udp.endPacket()` impedisce l'invio effettivo del datagramma anche se `write()` non da errore.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "event_task_latching",
+    "lesson": "PER TASK EVENT-DRIVEN USA UN LATCH: in `task-eventi.ino` la variabile `RUN` viene armata da input (`digitalRead(2)`), poi il task parte solo quando `dt >= 3000`.",
+    "spec_hint": "Senza latch il trigger puo retriggerare continuamente e la logica temporale diventa non deterministica.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "asymmetric_scheduler",
+    "lesson": "IMPLEMENTA PERIODI DIVERSI CAMBIANDO LA VARIABILE `tempo`: in `task-asimmetrico.ino` dopo il toggle LED imposta `tempo = 100` oppure `tempo = 1000`.",
+    "spec_hint": "Usare un solo delay fisso impedisce pattern asimmetrici e blocca eventuali task concorrenti.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "oop_timer_rearm",
+    "lesson": "CON TIMER A OGGETTI RIARMA ESPLICITAMENTE: in `MyTimer` chiami `set(ms)` per armare e `check()` per verificare timeout; in `timer-oop.ino` dopo `if (t1.check())` fai `t1.set(1000)`.",
+    "spec_hint": "Se non riarmi il timer dopo il timeout, il task scatta una sola volta e poi si ferma.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "oop_timer_state_guard",
+    "lesson": "USA UN FLAG INTERNO PER EVITARE FALSI POSITIVI: `MyTimer::check()` controlla `attivo` prima di calcolare `dt = millis() - t1` e restituisce `ret` coerente.",
+    "spec_hint": "Senza flag di attivazione, un timer non inizializzato puo segnalare timeout spuri.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "json_document_sizing",
+    "lesson": "DIMENSIONA IL DOCUMENTO JSON IN BASE AI CAMPI: in `JsonCreate.ino` usa `DynamicJsonDocument doc(1024)` prima di assegnare nodi annidati come `doc[\"posizione\"][\"lat\"]`.",
+    "spec_hint": "Capacita insufficiente tronca/omette campi e porta a serializzazione incompleta.",
+    "hardware_quirk": null,
+    "board": ""
+  },
+  {
+    "task_type": "json_deserialize_check",
+    "lesson": "DOPO `deserializeJson(doc, json)` CONTROLLA SEMPRE `DeserializationError error`: in `JsonRead.ino` su errore stampa `error.f_str()` e fa `return`.",
+    "spec_hint": "Ignorare l'errore espone a letture di campi null o garbage con bug difficili da tracciare.",
+    "hardware_quirk": null,
+    "board": ""
+  },
+  {
+    "task_type": "stream_json_parsing",
+    "lesson": "PARSA JSON DIRETTAMENTE DALLO STREAM TCP QUANDO FINISCONO GLI HEADER: in `AI019-Meteo.ino` alla linea vuota HTTP esegue `deserializeJson(doc, client)`.",
+    "spec_hint": "Se tenti parse prima del body completo, ottieni errori intermittenti di deserializzazione.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "wifinina_module_guard",
+    "lesson": "SU BOARD CON `WiFiNINA` VERIFICA IL MODULO: in `AI019-Meteo.ino` controlla `if (WiFi.status() == WL_NO_MODULE) while(true);` prima di usare la rete.",
+    "spec_hint": "Senza questo check il codice continua ma nessuna connessione e disponibile, generando timeout opachi.",
+    "hardware_quirk": "Dipende dalla presenza fisica del modulo NINA e dal firmware corretto.",
+    "board": "arduino:avr:uno"
+  }
+]

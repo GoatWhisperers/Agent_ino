@@ -1,0 +1,79 @@
+[
+  {
+    "task_type": "mpu6050",
+    "lesson": "MPU6050 con libreria I2Cdev: includere I2Cdev.h, MPU6050.h, Wire.h. Inizializzare con Wire.begin() PRIMA di accelgyro.initialize(). Verificare connessione con accelgyro.testConnection().",
+    "spec_hint": "MPU6050 accelgyro(0x68); // AD0 low=0x68, AD0 high=0x69\nvoid setup() {\n  Wire.begin();\n  Serial.begin(9600);\n  accelgyro.initialize();\n  Serial.println(accelgyro.testConnection() ? \"OK\" : \"FAIL\");\n}",
+    "hardware_quirk": "Wire.begin() deve precedere accelgyro.initialize() altrimenti il bus I2C non è pronto. L'indirizzo default è 0x68 (AD0 basso).",
+    "board": "arduino"
+  },
+  {
+    "task_type": "mpu6050",
+    "lesson": "Lettura accelerometro con getAcceleration(): restituisce valori raw int16_t. Per convertire in g dividere per 16384 (scala ±2g default). Per misurare urti calcolare la variazione di magnitudine tra frame consecutivi.",
+    "spec_hint": "int ax, ay, az;\naccelgyro.getAcceleration(&ax, &ay, &az);\nfloat x = ax / 100.0, y = ay / 100.0, z = az / 100.0;\nfloat magn = sqrt(x*x + y*y + z*z);\nfloat bump = abs(magn - pmagn); // variazione = intensità urto\npmagn = magn;",
+    "hardware_quirk": "I valori raw non sono in g — vanno scalati. La magnitudine vettoriale include gravità (~981 raw) anche a riposo.",
+    "board": "arduino"
+  },
+  {
+    "task_type": "mpu6050",
+    "lesson": "Lettura completa 6DOF con getMotion6(): legge accelerometro E giroscopio in una sola chiamata I2C. Parametri: int16_t ax, ay, az, gx, gy, gz passati per puntatore.",
+    "spec_hint": "int16_t ax, ay, az, gx, gy, gz;\naccelgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);",
+    "hardware_quirk": "getMotion6 è più efficiente di due chiamate separate perché legge i 12 byte in un'unica transazione I2C.",
+    "board": "arduino"
+  },
+  {
+    "task_type": "mpu6050",
+    "lesson": "Calcolo Roll e Pitch dall'accelerometro con atan2. Formula: pitch = atan2(ay, sqrt(ax²+az²)); roll = atan2(ax, sqrt(ay²+az²)). Convertire da radianti a gradi moltiplicando per 180/PI.",
+    "spec_hint": "float accToAngle(float a, float b, float c) {\n  float d = sqrt(a*a + c*c);\n  float ang = atan2(b, d);\n  return (ang * 180.0) / PI;\n}\n// Uso:\nfloat pitch = accToAngle(ay, ax, az);\nfloat roll  = accToAngle(ax, ay, az);",
+    "hardware_quirk": "Questo calcolo è valido solo per angoli statici (no movimento). Per angoli durante movimento servono filtri complementari o DMP integrato.",
+    "board": "arduino"
+  },
+  {
+    "task_type": "mpu6050",
+    "lesson": "Calibrazione offset MPU6050: usare setXGyroOffset/setYGyroOffset/setZGyroOffset per compensare drift giroscopio. I valori si trovano con sketch di calibrazione. Senza calibrazione il giroscopio deriva nel tempo.",
+    "spec_hint": "// Calibrazione tipica:\naccelgyro.setXGyroOffset(220);\naccelgyro.setYGyroOffset(76);\naccelgyro.setZGyroOffset(-85);\n// Verificare con getXGyroOffset() etc.",
+    "hardware_quirk": "Ogni MPU6050 ha offset unici — i valori di calibrazione non sono trasferibili tra moduli diversi.",
+    "board": "arduino"
+  },
+  {
+    "task_type": "bmp280",
+    "lesson": "BMP280/BME280 con libreria BMx280I2C: inizializzare con bmx280.begin() + bmx280.resetToDefaults(). OBBLIGATORIO abilitare oversampling su pressione E temperatura, altrimenti le letture restano a 0. BME280 ha anche umidità.",
+    "spec_hint": "#include <BMx280I2C.h>\n#define I2C_ADDRESS 0x76\nBMx280I2C bmx280(I2C_ADDRESS);\nvoid setup() {\n  Wire.begin();\n  bmx280.begin();\n  bmx280.resetToDefaults();\n  bmx280.writeOversamplingPressure(BMx280MI::OSRS_P_x16);\n  bmx280.writeOversamplingTemperature(BMx280MI::OSRS_T_x16);\n  if (bmx280.isBME280())\n    bmx280.writeOversamplingHumidity(BMx280MI::OSRS_H_x16);\n}",
+    "hardware_quirk": "BMP280 non ha umidità. isBME280() distingue i due chip. Indirizzo: 0x76 (SDO basso) o 0x77 (SDO alto).",
+    "board": "arduino"
+  },
+  {
+    "task_type": "bmp280",
+    "lesson": "Pattern lettura BMx280I2C: avviare misura con bmx280.measure(), attendere completamento con while(!bmx280.hasValue()) { delay(100); }, poi leggere con getPressure()/getTemperature()/getHumidity(). NON leggere senza attendere hasValue().",
+    "spec_hint": "void loop() {\n  bmx280.measure();\n  do {\n    delay(100);\n  } while (!bmx280.hasValue());\n  Serial.print(\"Pressione: \"); Serial.println(bmx280.getPressure());\n  Serial.print(\"Temp: \"); Serial.println(bmx280.getTemperature());\n  if (bmx280.isBME280()) {\n    Serial.print(\"Umidità: \"); Serial.println(bmx280.getHumidity());\n  }\n  delay(1000);\n}",
+    "hardware_quirk": "Il ciclo di misura richiede ~40ms con oversampling x16. Leggere senza hasValue() restituisce dati stantii.",
+    "board": "arduino"
+  },
+  {
+    "task_type": "stepper",
+    "lesson": "Stepper unipolare ULN2003 con libreria Arduino standard: costruttore Stepper(stepsPerRevolution, pin1, pin2, pin3, pin4). NOTA: i pin non sono in ordine sequenziale — l'ordine corretto per ULN2003 è 8,10,9,11 (non 8,9,10,11).",
+    "spec_hint": "#include <Stepper.h>\nconst int stepsPerRevolution = 200;\nStepper myStepper(stepsPerRevolution, 8, 10, 9, 11); // ordine ULN2003!\nvoid setup() {\n  myStepper.setSpeed(30); // RPM\n  myStepper.step(200);   // un giro orario\n  delay(500);\n  myStepper.step(-200);  // un giro antiorario\n}",
+    "hardware_quirk": "L'ordine dei pin per ULN2003 è 8,10,9,11 NON 8,9,10,11. Ordine sbagliato → vibrazioni senza rotazione.",
+    "board": "arduino"
+  },
+  {
+    "task_type": "stepper",
+    "lesson": "Controllo velocità stepper con potenziometro: leggere analogRead(A0), mappare 0-1023 a 0-100 RPM con map(), aggiornare setSpeed() ogni loop. La libreria Stepper è BLOCCANTE — step() non ritorna finché non completato.",
+    "spec_hint": "void loop() {\n  int sensorReading = analogRead(A0);\n  int motorSpeed = map(sensorReading, 0, 1023, 0, 100);\n  if (motorSpeed > 0) {\n    myStepper.setSpeed(motorSpeed);\n    myStepper.step(1); // avanza 1 passo per loop\n  }\n}",
+    "hardware_quirk": "Stepper.step() è bloccante — non usare con millis() o interrupt. Per controllo non bloccante usare AccelStepper library.",
+    "board": "arduino"
+  },
+  {
+    "task_type": "stepper",
+    "lesson": "Stepper bipolare A4988/DRV8825 con Timer hardware (fast PWM su pin 3/OC2B). Configura TCCR2A/TCCR2B per Fast PWM con TOP personalizzato su OCR2A, duty cycle su OCR2B. ENA (enable) attivo basso, DIR per direzione.",
+    "spec_hint": "// Pin: ENA=8, STP=3(OC2B), DIR=6\npinMode(8, OUTPUT); // ENA\npinMode(6, OUTPUT); // DIR\npinMode(3, OUTPUT); // STP (PWM)\nTCCR2A = (1<<COM2B1)|(1<<WGM21)|(1<<WGM20);\nTCCR2B = (1<<WGM22)|(1<<CS22)|(1<<CS21); // prescaler 256\nOCR2A = 624; // TOP → 100 Hz\nOCR2B = 312; // duty 50%\ndigitalWrite(8, LOW); // ENA attivo (LOW)\ndigitalWrite(6, LOW); // DIR avanti",
+    "hardware_quirk": "A4988: ENA LOW = driver abilitato, ENA HIGH = disabilitato. DRV8825 identico. Il STEP pin richiede segnale PWM — frequenza = velocità passi.",
+    "board": "arduino"
+  },
+  {
+    "task_type": "stepper",
+    "lesson": "Frequenza PWM per step rate A4988: con prescaler 256 e F_CPU=16MHz: F = 16MHz/(256*(OCR2A+1)). OCR2A=624 → F=100Hz = 100 step/sec. Per 200 step/giro = 0.5 giri/sec = 30 RPM. Modificare OCR2A per cambiare velocità.",
+    "spec_hint": "// Formula: OCR2A = (F_CPU / (prescaler * freq_hz)) - 1\n// 16MHz / (256 * 100Hz) - 1 = 624\n// Per 200 Hz (60 RPM): OCR2A = 311, OCR2B = 155\n// Per 50 Hz (15 RPM): OCR2A = 1249 (troppo > 255!) → usare prescaler 1024\nOCR2A = 624;\nOCR2B = OCR2A / 2; // duty 50% sempre",
+    "hardware_quirk": "OCR2A è 8-bit (0-255) su Timer2 se si usa WGM22+OCR2A come TOP — verificare che il valore non superi il limite del registro.",
+    "board": "arduino"
+  }
+]

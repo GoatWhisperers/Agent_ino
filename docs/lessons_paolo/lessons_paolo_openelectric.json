@@ -1,0 +1,72 @@
+[
+  {
+    "task_type": "analog_mux_select_lines",
+    "lesson": "IMPOSTA LE LINEE DI SELEZIONE COME OUTPUT PRIMA DEL CICLO: in `test_ingressi_analogici.ino` usa `pinMode(A1, OUTPUT); pinMode(A2, OUTPUT); pinMode(A3, OUTPUT);` per pilotare il mux/decoder.",
+    "spec_hint": "Se le select restano floating, i canali letti su `analogRead(A0)` cambiano in modo casuale.",
+    "hardware_quirk": "Le linee di selezione del mux richiedono livelli digitali stabili.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "bitmask_channel_scan",
+    "lesson": "SELEZIONA IL CANALE CON MASCHERE BINARIE: nel loop `for (byte i=0; i<8; i++)` usa `if (B001 & i)`, `if (B010 & i)`, `if (B100 & i)` per impostare A1/A2/A3.",
+    "spec_hint": "Senza mapping bitwise puoi indirizzare canali sbagliati e leggere ingressi non corrispondenti.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "mux_settle_time",
+    "lesson": "DOPO IL CAMBIO CANALE LEGGI IN SEQUENZA STABILE E CADENZA FISSA: in `test_ingressi_analogici.ino` la scansione termina ogni step con `delay(100)` prima del prossimo indirizzo.",
+    "spec_hint": "Senza tempo di assestamento minimo, il campione ADC puo riflettere il canale precedente.",
+    "hardware_quirk": "MUX analogici possono richiedere tempo di settling dopo cambio select.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "tabular_serial_telemetry",
+    "lesson": "FORMATTA LA TELEMETRIA SERIALE IN RIGHE/COLONNE: `Serial.print(v); Serial.print(\"\\\\t\");` e `if (i==7) Serial.println(\".\")` in `test_ingressi_analogici.ino`.",
+    "spec_hint": "Output non strutturato rende difficile il parsing da tool esterni o log analysis.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "parallel_in_shift_load",
+    "lesson": "PER REGISTRI PISO ESEGUI LA SEQUENZA DI LOAD: in `test_ingressi_digitali.ino` usa `REG_SL` HIGH->LOW->HIGH prima della lettura seriale su `REG_DI`.",
+    "spec_hint": "Se non latchetti gli ingressi prima dello shift, leggi dati vecchi o incoerenti.",
+    "hardware_quirk": "La linea SH/LD dei registri parallelo->seriale richiede fronti corretti.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "shift_clocking_read",
+    "lesson": "CLOCKA UN BIT ALLA VOLTA DURANTE LA LETTURA: nel `for (i < 16)` di `test_ingressi_digitali.ino` alterna `digitalWrite(REG_CK, LOW); ... HIGH;` ad ogni bit.",
+    "spec_hint": "Se non generi i fronti di clock giusti, perdi bit o ruoti la parola acquisita.",
+    "hardware_quirk": "Registri a scorrimento campionano dati sui fronti del clock.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "serial_in_pin_modes",
+    "lesson": "CONFIGURA DIREZIONI PIN COERENTI CON IL BUS: `REG_SL`/`REG_CK` in OUTPUT e `REG_DI` in INPUT in `test_ingressi_digitali.ino`.",
+    "spec_hint": "PinMode errato puo causare contention elettrica o letture costantemente 0/1.",
+    "hardware_quirk": null,
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "sipo_latch_wrapping",
+    "lesson": "SU REGISTRI SIPO AVVOLGI `shiftOut` TRA LATCH LOW/HIGH: in `test_uscite.ino` `digitalWrite(REG_STCP, LOW); shiftOut(...); digitalWrite(REG_STCP, HIGH);`.",
+    "spec_hint": "Se latchetti durante lo shift, le uscite cambiano in transizione e producono glitch visibili.",
+    "hardware_quirk": "Pin STCP (latch) aggiorna uscite solo al fronte corretto.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "cascaded_shiftout",
+    "lesson": "PER DUE REGISTRI IN CASCATA INVIA DUE BYTE CONSECUTIVI: `shiftOut(..., 0xFF); shiftOut(..., 0xFF);` (poi `0x00`) in `test_uscite.ino`.",
+    "spec_hint": "Inviare un solo byte lascia meta uscite in stato precedente e genera pattern incompleti.",
+    "hardware_quirk": "Ogni 74HC595 aggiunge 8 uscite; il numero di byte deve matchare la catena.",
+    "board": "arduino:avr:uno"
+  },
+  {
+    "task_type": "output_pattern_test",
+    "lesson": "VALIDA LE USCITE ALTERNANDO PATTERN ESTREMI: in `test_uscite.ino` alterna `0xFF` e `0x00` con `delay(1000)` per test funzionale rapido delle linee.",
+    "spec_hint": "Senza pattern netti ON/OFF e difficile individuare errori di cablaggio o bit order.",
+    "hardware_quirk": "Con carichi reali (rele/driver) i tempi di commutazione possono richiedere ritardi minimi.",
+    "board": "arduino:avr:uno"
+  }
+]

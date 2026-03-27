@@ -1,0 +1,107 @@
+[
+  {
+    "task_type": "wifi_periodic_healthcheck",
+    "lesson": "ESEGUI HEALTHCHECK WIFI PERIODICO CON TIMER: in `W01_Station_reconnect.ino` ogni 10s (`if ((millis()-t1) > 10000)`) verifica `WiFi.status()`.",
+    "spec_hint": "Senza check periodico, la perdita AP resta invisibile e il nodo continua offline.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "wifi_reconnect_flow",
+    "lesson": "QUANDO CADE LA CONNESSIONE USA `WiFi.disconnect(); WiFi.reconnect();`: pattern esplicito in `W01_Station_reconnect.ino` dentro il ramo `if (WiFi.status() != WL_CONNECTED)`.",
+    "spec_hint": "Solo `WiFi.reconnect()` senza reset di stato puo non recuperare da certe transizioni AP.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "wifi_event_callbacks",
+    "lesson": "PREFERISCI CALLBACK EVENT-DRIVEN CON `WiFi.onEvent(...)`: in `W02_Event.ino` registra `onConnect` e `onIP` per `ARDUINO_EVENT_WIFI_STA_CONNECTED/GOT_IP`.",
+    "spec_hint": "Polling continuo su `WiFi.status()` perde granularita sugli stati intermedi di connessione.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "wifi_event_cleanup",
+    "lesson": "RIMUOVI CALLBACK NON PIU NECESSARIE CON `WiFi.removeEvent(...)`: in `W02_Event.ino` rimuove l'handler `ARDUINO_EVENT_WIFI_STA_CONNECTED` dopo setup.",
+    "spec_hint": "Listener lasciati attivi senza necessita complicano debug e possono duplicare side-effect.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "multi_ap_failover",
+    "lesson": "PER RIDONDANZA RETE USA `WiFiMulti`: in `W03_MultiWiFi.ino` aggiunge SSID con `wifimulti.addAP(...)` e verifica con `wifimulti.run(5000)`.",
+    "spec_hint": "Singolo SSID hardcoded rende fragile la disponibilita del nodo in ambienti con AP multipli.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "spiffs_mount_guard",
+    "lesson": "MOUNTA SPIFFS E BLOCCA SU ERRORE PRIMA DEL SERVER: `if (!SPIFFS.begin(true)) { ... while(1); }` in `SPIFFS-WebServer.ino`.",
+    "spec_hint": "Servire file senza filesystem montato porta 404/empty response su tutte le route statiche.",
+    "hardware_quirk": "`SPIFFS.begin(true)` puo formattare il FS se corrotto/non inizializzato.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "asyncwebserver_static_files",
+    "lesson": "SERVI PAGINE DA SPIFFS CON `AsyncWebServer` E `req->send(SPIFFS, \"/index.html\", ..., processor)`: pattern base in `SPIFFS-WebServer*.ino`.",
+    "spec_hint": "Generare HTML solo inline riduce manutenibilita e aumenta consumo RAM su sketch grandi.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "template_processor_hook",
+    "lesson": "USA `processor(const String& par)` PER PLACEHOLDER DINAMICI: in `SPIFFS-WebServerDinamico.ino` gestisce `%STATO_LED%` leggendo `digitalRead(5)`.",
+    "spec_hint": "Senza hook template, stato UI e stato hardware possono divergere e confondere l'utente.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "ota_runtime_loop",
+    "lesson": "NELLA OTA CLASSICA DEVI CHIAMARE `ArduinoOTA.handle()` AD OGNI LOOP: in `BasicOTA.ino` e l'elemento che processa upload e progress.",
+    "spec_hint": "Se `handle()` non gira, la board e visibile in rete ma non accetta aggiornamenti OTA.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "ota_recovery_boot",
+    "lesson": "GESTISCI FALLIMENTO WIFI IN BOOT OTA CON RESTART: in `BasicOTA.ino` usa `while (WiFi.waitForConnectResult() != WL_CONNECTED) { ... ESP.restart(); }`.",
+    "spec_hint": "Restare bloccati senza recovery rende impossibile aggiornare remotamente il nodo.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "web_ota_chunked_update",
+    "lesson": "NEL WEB OTA SCRIVI IL FIRMWARE A CHUNK TRAMITE `HTTPUpload`: in `OTAWebUpdater.ino` usa `Update.begin(...)`, `Update.write(...)`, `Update.end(true)` nello handler `/update`.",
+    "spec_hint": "Se non segui il flusso start/write/end rischi firmware incompleto e boot fallito dopo reboot.",
+    "hardware_quirk": "OTA richiede spazio libero sufficiente per immagine di update.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "espnow_peer_setup",
+    "lesson": "IN ESP-NOW CONFIGURA PEER PRIMA DELL'INVIO: `esp_now_init()`, `memcpy(peerinfo.peer_addr, rxaddr, 6)`, `esp_now_add_peer(&peerinfo)` e poi `esp_now_send(...)`.",
+    "spec_hint": "Senza peer registrato, `esp_now_send` fallisce anche con radio attiva.",
+    "hardware_quirk": "Entrambi i nodi devono stare in `WiFi.mode(WIFI_STA)`.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "espnow_struct_payload",
+    "lesson": "TRASMETTI DATI CONSISTENTI CON UNA `struct message` CONDIVISA: nei file ESP-NOW usa `memcpy(&myData, dati, sizeof(myData))` nel callback `onDataRecv`.",
+    "spec_hint": "Se TX/RX hanno struct diverse (ordine/tipi), il payload viene interpretato con valori corrotti.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "ble_server_bootstrap",
+    "lesson": "PER BLE SERVER CREA SEQUENZA COMPLETA: `BLEDevice::init(...)`, `createServer()`, `createService()`, `createCharacteristic(...)`, `pService->start()`, `BLEDevice::startAdvertising()`.",
+    "spec_hint": "Saltare uno step (es. `start()` del service) rende il device invisibile o non utilizzabile dal client.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "ble_notification_enable",
+    "lesson": "NEL CLIENT BLE ATTIVA LE NOTIFICHE SU DESCRIPTOR 0x2902: in `BLEClient.ino` `chBatteria->getDescriptor(BLEUUID((uint16_t)0x2902))->writeValue(notificationOn, 2, true)`.",
+    "spec_hint": "Senza abilitazione CCCD, il callback `batteryNotifyCallback` non riceve aggiornamenti dal server.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  }
+]

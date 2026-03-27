@@ -1,0 +1,128 @@
+[
+  {
+    "task_type": "wifi_esp32",
+    "lesson": "Connessione WiFi ESP32 in modalità Station: WiFi.begin(ssid, password) + while(WiFi.status()!=WL_CONNECTED){delay(500);} per attendere. Dopo la connessione stampare WiFi.localIP(). Mettere credenziali in variabili const char*.",
+    "spec_hint": "#include <WiFi.h>\nconst char* ssid = \"rete\";\nconst char* password = \"password\";\nvoid setup() {\n  Serial.begin(115200);\n  WiFi.begin(ssid, password);\n  while (WiFi.status() != WL_CONNECTED) {\n    delay(500); Serial.print(\".\");\n  }\n  Serial.println(\"\\nConnesso! IP: \");\n  Serial.println(WiFi.localIP());\n}",
+    "hardware_quirk": "WiFi.begin() è asincrono — non blocca. Bisogna aspettare WL_CONNECTED. Senza il while il codice prosegue con WiFi non ancora connesso.",
+    "board": "esp32"
+  },
+  {
+    "task_type": "wifi_esp32",
+    "lesson": "ESP32 come Access Point (AP): WiFi.softAP(ssid, password) crea una rete WiFi. L'IP default del AP è 192.168.4.1. Usare WiFi.softAPIP() per ottenere l'IP. Utile per configurazione senza router.",
+    "spec_hint": "#include <WiFi.h>\nvoid setup() {\n  Serial.begin(115200);\n  WiFi.softAP(\"ESP32_AP\", \"password123\");\n  Serial.print(\"AP IP: \");\n  Serial.println(WiFi.softAPIP()); // 192.168.4.1\n}",
+    "hardware_quirk": "In modalità AP, l'ESP32 crea una rete locale separata. I client si connettono direttamente all'ESP32, non ad internet. La password deve essere almeno 8 caratteri.",
+    "board": "esp32"
+  },
+  {
+    "task_type": "wifi_esp32",
+    "lesson": "Scan reti WiFi con ESP32: WiFi.scanNetworks() restituisce il numero di reti trovate. Poi WiFi.SSID(i), WiFi.RSSI(i), WiFi.channel(i), WiFi.encryptionType(i) per ogni rete i. Chiamare WiFi.scanDelete() dopo per liberare memoria.",
+    "spec_hint": "#include <WiFi.h>\nvoid setup() {\n  WiFi.mode(WIFI_STA);\n  int n = WiFi.scanNetworks();\n  for (int i = 0; i < n; i++) {\n    Serial.print(WiFi.SSID(i));\n    Serial.print(\" RSSI:\");\n    Serial.println(WiFi.RSSI(i));\n  }\n  WiFi.scanDelete();\n}",
+    "hardware_quirk": "WiFi.mode(WIFI_STA) deve essere chiamato prima di scanNetworks(). RSSI più vicino a 0 = segnale più forte (es. -40 è forte, -90 è debole).",
+    "board": "esp32"
+  },
+  {
+    "task_type": "wifi_esp32",
+    "lesson": "WebServer ESP32 con libreria WebServer: creare WebServer server(80), definire handler con server.on('/path', handler), avviare con server.begin(). Nel loop chiamare server.handleClient(). Rispondere con server.send(200, 'text/html', html).",
+    "spec_hint": "#include <WiFi.h>\n#include <WebServer.h>\nWebServer server(80);\nvoid handleRoot() {\n  server.send(200, \"text/html\", \"<h1>ESP32</h1>\");\n}\nvoid setup() {\n  // ... WiFi.begin + wait ...\n  server.on(\"/\", handleRoot);\n  server.begin();\n}\nvoid loop() {\n  server.handleClient();\n}",
+    "hardware_quirk": "server.handleClient() DEVE stare nel loop() — se manca il server non risponde. Non usare delay() lunghi nel loop insieme a handleClient().",
+    "board": "esp32"
+  },
+  {
+    "task_type": "wifi_esp32",
+    "lesson": "HTTPClient ESP32 per GET request: HTTPClient http; http.begin(url); int code = http.GET(); String payload = http.getString(); http.end(). SEMPRE chiamare http.end() dopo ogni richiesta per liberare la connessione.",
+    "spec_hint": "#include <WiFi.h>\n#include <HTTPClient.h>\nvoid loop() {\n  if (WiFi.status() == WL_CONNECTED) {\n    HTTPClient http;\n    http.begin(\"http://192.168.1.1/data\");\n    int httpCode = http.GET();\n    if (httpCode == 200) {\n      String payload = http.getString();\n      Serial.println(payload);\n    }\n    http.end(); // OBBLIGATORIO\n  }\n  delay(5000);\n}",
+    "hardware_quirk": "Verificare WiFi.status()==WL_CONNECTED prima di ogni HTTPClient — il WiFi può disconnettersi. http.end() mancante causa memory leak e crash dopo molte chiamate.",
+    "board": "esp32"
+  },
+  {
+    "task_type": "wifi_esp32",
+    "lesson": "IP statico ESP32 WiFi: chiamare WiFi.config(ip, gateway, subnet) PRIMA di WiFi.begin(). I parametri sono oggetti IPAddress. Il DNS opzionale è il 4° parametro.",
+    "spec_hint": "#include <WiFi.h>\nIPAddress ip(192, 168, 1, 200);\nIPAddress gateway(192, 168, 1, 1);\nIPAddress subnet(255, 255, 255, 0);\nIPAddress dns(8, 8, 8, 8);\nvoid setup() {\n  WiFi.config(ip, gateway, subnet, dns); // PRIMA di begin!\n  WiFi.begin(ssid, password);\n  // ... attesa WL_CONNECTED ...\n}",
+    "hardware_quirk": "WiFi.config() deve precedere WiFi.begin() altrimenti viene ignorato. Se il gateway è sbagliato l'ESP32 non raggiunge internet ma è raggiungibile in LAN.",
+    "board": "esp32"
+  },
+  {
+    "task_type": "espnow",
+    "lesson": "ESP-NOW: protocollo WiFi ESP32-to-ESP32 senza router, latenza ~1ms, range fino a 200m in campo aperto. Inizializzazione: WiFi.mode(WIFI_STA) poi esp_now_init(). Dati inviati come struct binaria (max 250 bytes).",
+    "spec_hint": "#include <esp_now.h>\n#include <WiFi.h>\nvoid setup() {\n  WiFi.mode(WIFI_STA); // OBBLIGATORIO prima di esp_now_init\n  if (esp_now_init() != ESP_OK) {\n    Serial.println(\"ESP-NOW init fallito\");\n    return;\n  }\n}",
+    "hardware_quirk": "WiFi.mode(WIFI_STA) deve precedere esp_now_init(). ESP-NOW funziona anche senza essere connessi a un router. Il WiFi channel deve coincidere tra sender e receiver (default 0 = auto).",
+    "board": "esp32"
+  },
+  {
+    "task_type": "espnow",
+    "lesson": "ESP-NOW mittente: definire una struct per i dati, registrare il peer con esp_now_add_peer(), inviare con esp_now_send(mac, data, size). Il MAC del destinatario va nell'array peer_addr. Per broadcast usare {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF}.",
+    "spec_hint": "typedef struct {\n  int valore;\n  float temperatura;\n  bool attivo;\n} Messaggio;\nMessaggio msg;\n\n// Registra peer\nesp_now_peer_info_t peerInfo = {};\nmemcpy(peerInfo.peer_addr, receiverMAC, 6);\npeerInfo.channel = 0;\npeerInfo.encrypt = false;\nesp_now_add_peer(&peerInfo);\n\n// Invia\nmsg.valore = 42;\nesp_now_send(receiverMAC, (uint8_t*)&msg, sizeof(msg));",
+    "hardware_quirk": "Il MAC del destinatario si ottiene con WiFi.macAddress() sull'altro ESP32. memset(&peerInfo, 0, sizeof(peerInfo)) prima di riempire i campi evita garbage nei campi inutilizzati.",
+    "board": "esp32"
+  },
+  {
+    "task_type": "espnow",
+    "lesson": "ESP-NOW callback invio (OnDataSent): registrata con esp_now_register_send_cb(). Riceve MAC destinatario e status ESP_NOW_SEND_SUCCESS o ESP_NOW_SEND_FAIL. Permette di sapere se il pacchetto è arrivato.",
+    "spec_hint": "void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {\n  if (status == ESP_NOW_SEND_SUCCESS) {\n    Serial.println(\"Consegnato\");\n  } else {\n    Serial.println(\"Fallito\");\n  }\n}\n// Nel setup:\nesp_now_register_send_cb(OnDataSent);",
+    "hardware_quirk": "La callback viene eseguita in un contesto separato (task FreeRTOS). Non usare Serial.println() da callback in produzione — può causare crash se il buffer è pieno.",
+    "board": "esp32"
+  },
+  {
+    "task_type": "espnow",
+    "lesson": "ESP-NOW ricevitore: registrare callback con esp_now_register_recv_cb(). La callback riceve mac mittente, puntatore dati, lunghezza. Copiare i dati con memcpy() nella struct locale. Il loop() può restare vuoto.",
+    "spec_hint": "typedef struct {\n  int valore;\n  float temperatura;\n} Messaggio;\nMessaggio datiRicevuti;\n\nvoid OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {\n  memcpy(&datiRicevuti, data, sizeof(datiRicevuti));\n  Serial.print(\"Ricevuto valore: \");\n  Serial.println(datiRicevuti.valore);\n}\n\nvoid setup() {\n  WiFi.mode(WIFI_STA);\n  esp_now_init();\n  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));\n}\nvoid loop() {}",
+    "hardware_quirk": "La struct del ricevitore DEVE essere identica a quella del mittente (stesso ordine campi, stessi tipi). Un mismatch causa lettura di dati corrotti senza errori visibili.",
+    "board": "esp32"
+  },
+  {
+    "task_type": "espnow",
+    "lesson": "ESP-NOW multi-nodo: ogni nodo registra più peer con esp_now_add_peer(). Ogni peer è identificato dal suo MAC univoco. Per creare una rete mesh semplice ogni nodo deve conoscere i MAC degli altri nodi a compile time o via EEPROM.",
+    "spec_hint": "// Nodo master con 2 slave\nuint8_t slave1[] = {0xAA,0xBB,0xCC,0xDD,0xEE,0x01};\nuint8_t slave2[] = {0xAA,0xBB,0xCC,0xDD,0xEE,0x02};\n\n// Aggiunge entrambi i peer\naggiungiPeer(slave1);\naggiungiPeer(slave2);\n\n// Invia a slave1 specifico\nesp_now_send(slave1, (uint8_t*)&msg, sizeof(msg));\n// Invia in broadcast a tutti\nuint8_t broadcast[] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};\nesp_now_send(broadcast, (uint8_t*)&msg, sizeof(msg));",
+    "hardware_quirk": "ESP-NOW supporta max 20 peer unicast + illimitati broadcast. Il broadcast non garantisce consegna — non c'è ACK.",
+    "board": "esp32"
+  },
+  {
+    "task_type": "ble_esp32",
+    "lesson": "BLE Server ESP32: sequenza obbligatoria — BLEDevice::init(nome), createServer(), createService(UUID_servizio), createCharacteristic(UUID_caratteristica, proprietà), setValue(), service.start(), BLEDevice::startAdvertising(). Le UUID sono stringhe nel formato standard 8-4-4-4-12.",
+    "spec_hint": "#include <BLEDevice.h>\n#include <BLEServer.h>\n#include <BLEUtils.h>\n#define SERVICE_UUID \"4fafc201-1fb5-459e-8fcc-c5c9c331914b\"\n#define CHAR_UUID    \"beb5483e-36e1-4688-b7f5-ea07361b26a8\"\nvoid setup() {\n  BLEDevice::init(\"MioESP32\");\n  BLEServer *pServer = BLEDevice::createServer();\n  BLEService *pService = pServer->createService(SERVICE_UUID);\n  BLECharacteristic *pChar = pService->createCharacteristic(\n    CHAR_UUID,\n    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE\n  );\n  pChar->setValue(\"Ciao\");\n  pService->start();\n  BLEDevice::getAdvertising()->start();\n}",
+    "hardware_quirk": "Le UUID devono essere generate casualmente e uniche per ogni progetto. Usare uuidgenerator.net. UUID standard Bluetooth (16-bit) sono riservate a profili ufficiali.",
+    "board": "esp32"
+  },
+  {
+    "task_type": "ble_esp32",
+    "lesson": "BLE Notify ESP32: per inviare dati in push al client senza che faccia polling. La caratteristica deve avere PROPERTY_NOTIFY. Aggiungere descriptor BLE2902 (CCCD). Client deve abilitare le notifiche. Inviare con pChar->setValue() + pChar->notify().",
+    "spec_hint": "#include <BLE2902.h>\n// Proprietà con NOTIFY:\nBLECharacteristic *pChar = pService->createCharacteristic(\n  CHAR_UUID,\n  BLECharacteristic::PROPERTY_READ |\n  BLECharacteristic::PROPERTY_NOTIFY\n);\npChar->addDescriptor(new BLE2902()); // OBBLIGATORIO per notify\n\n// Inviare notifica nel loop:\nif (deviceConnected) {\n  uint32_t val = millis();\n  pChar->setValue((uint8_t*)&val, 4);\n  pChar->notify();\n  delay(100); // non troppo veloce\n}",
+    "hardware_quirk": "BLE2902 (Client Characteristic Configuration Descriptor) è obbligatorio per NOTIFY/INDICATE — senza di esso il client non può abilitare le notifiche. Non aggiungere delay() < 3ms tra notify o lo stack BLE va in congestione.",
+    "board": "esp32"
+  },
+  {
+    "task_type": "ble_esp32",
+    "lesson": "BLE callbacks connessione/disconnessione: ereditare BLEServerCallbacks, override onConnect/onDisconnect. Dopo una disconnessione chiamare pServer->startAdvertising() per rendere il device di nuovo visibile. Usare flag booleano deviceConnected volatile.",
+    "spec_hint": "bool deviceConnected = false;\nclass MyCallbacks: public BLEServerCallbacks {\n  void onConnect(BLEServer* pServer) {\n    deviceConnected = true;\n  }\n  void onDisconnect(BLEServer* pServer) {\n    deviceConnected = false;\n    delay(500); // lascia stabilizzare lo stack\n    pServer->startAdvertising(); // riprende advertising\n  }\n};\n// Nel setup:\npServer->setCallbacks(new MyCallbacks());",
+    "hardware_quirk": "Senza startAdvertising() dopo disconnessione l'ESP32 diventa invisibile e non accetta nuove connessioni. Il delay(500) prima di startAdvertising è necessario per lo stack BLE.",
+    "board": "esp32"
+  },
+  {
+    "task_type": "ble_esp32",
+    "lesson": "BLE Scan ESP32: BLEDevice::init(''), BLEDevice::getScan(), setAdvertisedDeviceCallbacks(callback), setActiveScan(true), pBLEScan->start(durata_sec, false). La callback onResult() riceve BLEAdvertisedDevice con toString(), getRSSI(), getName().",
+    "spec_hint": "#include <BLEDevice.h>\n#include <BLEScan.h>\n#include <BLEAdvertisedDevice.h>\nclass MyCallbacks: public BLEAdvertisedDeviceCallbacks {\n  void onResult(BLEAdvertisedDevice dev) {\n    Serial.printf(\"Device: %s RSSI:%d\\n\",\n      dev.getName().c_str(), dev.getRSSI());\n  }\n};\nvoid setup() {\n  BLEDevice::init(\"\");\n  BLEScan* scan = BLEDevice::getScan();\n  scan->setAdvertisedDeviceCallbacks(new MyCallbacks());\n  scan->setActiveScan(true);\n  scan->start(5, false); // 5 secondi\n  scan->clearResults();\n}",
+    "hardware_quirk": "Active scan (richiede risposta dati aggiuntivi dal device) consuma più corrente ma ottiene RSSI, nome, servizi. clearResults() è necessario per liberare memoria heap.",
+    "board": "esp32"
+  },
+  {
+    "task_type": "ble_esp32",
+    "lesson": "BLE Write callback ESP32: per ricevere dati dal client. Caratteristica con PROPERTY_WRITE, ereditare BLECharacteristicCallbacks, override onWrite(). Leggere i dati ricevuti con pChar->getValue() che restituisce std::string.",
+    "spec_hint": "class CharCallbacks: public BLECharacteristicCallbacks {\n  void onWrite(BLECharacteristic *pChar) {\n    std::string val = pChar->getValue();\n    if (val.length() > 0) {\n      Serial.print(\"Ricevuto: \");\n      for (char c : val) Serial.print(c);\n      Serial.println();\n    }\n  }\n};\n// Nel setup:\npChar->setCallbacks(new CharCallbacks());",
+    "hardware_quirk": "getValue() restituisce std::string (C++ standard), non String Arduino. Convertire con String(val.c_str()) se serve. I dati ricevuti sono raw bytes — definire un protocollo (es. primo byte = comando).",
+    "board": "esp32"
+  },
+  {
+    "task_type": "espnow",
+    "lesson": "ESP-NOW vs WiFi classico: ESP-NOW non richiede router, latenza ~1ms (WiFi TCP ~50ms), consumo energetico molto inferiore, range 200m (vs 50m indoor WiFi). Ideale per sensori wireless, telecomandi, sincronizzazione multi-ESP. Limite: 250 byte per pacchetto, no internet.",
+    "spec_hint": "// Confronto:\n// WiFi TCP: router necessario, latenza 50ms+, pacchetti grandi, internet OK\n// ESP-NOW: P2P diretto, latenza 1ms, max 250 byte/pacchetto, no internet\n// Scelta: sensori → ESP-NOW; dashboard web → WiFi TCP",
+    "hardware_quirk": "ESP-NOW e WiFi possono coesistere sullo stesso ESP32 ma devono usare lo stesso canale WiFi. Se l'ESP32 è connesso a un router, il canale ESP-NOW deve coincidere con quello del router.",
+    "board": "esp32"
+  },
+  {
+    "task_type": "wifi_esp32",
+    "lesson": "Riconnessione WiFi automatica ESP32: gestire la disconnessione controllando WiFi.status() nel loop. Se disconnesso, chiamare WiFi.reconnect(). Per connessioni più robuste usare l'evento WiFi.onEvent() con ARDUINO_EVENT_WIFI_STA_DISCONNECTED.",
+    "spec_hint": "void loop() {\n  if (WiFi.status() != WL_CONNECTED) {\n    Serial.println(\"WiFi perso, riconnessione...\");\n    WiFi.reconnect();\n    int tentativi = 0;\n    while (WiFi.status() != WL_CONNECTED && tentativi < 10) {\n      delay(500); tentativi++;\n    }\n    if (WiFi.status() == WL_CONNECTED)\n      Serial.println(\"Riconnesso!\");\n  }\n  // resto del codice...\n  delay(1000);\n}",
+    "hardware_quirk": "WiFi.reconnect() è più veloce di WiFi.begin() perché riusa le credenziali. Senza gestione disconnessione, HTTPClient e WebServer smettono di funzionare silenziosamente dopo un drop WiFi.",
+    "board": "esp32"
+  }
+]

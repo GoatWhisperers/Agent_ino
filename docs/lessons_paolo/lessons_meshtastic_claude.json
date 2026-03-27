@@ -1,0 +1,79 @@
+[
+  {
+    "task_type": "meshtastic",
+    "lesson": "MESHTASTIC COS'È: rete mesh LoRa decentralizzata — ogni nodo è router e client simultaneamente. I messaggi si propagano hop-by-hop finché arrivano a destinazione o TTL scade. Nessun gateway centrale richiesto. Firmware open-source su ESP32+LoRa (Heltec, T-Beam, T3S3). Non serve LoRaWAN né TTN.",
+    "spec_hint": "Meshtastic non è LoRaWAN — usa LoRa raw con il proprio protocollo mesh. Non si integra con TTN/Chirpstack. È pensato per comunicazione off-grid tra persone, non per IoT con cloud.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "meshtastic",
+    "lesson": "MESHTASTIC INSTALLAZIONE FIRMWARE: usa meshtastic.org/flasher o `pip install meshtastic; meshtastic --flash` per flashare il firmware sul device. Oppure PlatformIO con il repo ufficiale. NON compilare con Arduino IDE — il firmware usa ESP-IDF + PlatformIO.",
+    "spec_hint": "Tentare di compilare il firmware Meshtastic con Arduino IDE fallisce — usa ESP-IDF e librerie non disponibili nell'IDE standard. Il flasher web funziona via WebSerial e non richiede installazione.",
+    "hardware_quirk": "T-Beam richiede il variant corretto (v1.1 vs v1.2 hanno PMU diversi). Flashare il variant sbagliato causa brick — il GPS e il LoRa non si alimentano.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "meshtastic",
+    "lesson": "MESHTASTIC CONFIGURAZIONE VIA PYTHON API: `pip install meshtastic; python3`. `import meshtastic; import meshtastic.serial_interface; iface = meshtastic.serial_interface.SerialInterface('/dev/ttyUSB0')`. Leggi info: `iface.getMyNodeInfo()`. Invia messaggio: `iface.sendText('ciao')`.",
+    "spec_hint": "La Python API si connette via seriale o BLE. Aggiungere l'utente al gruppo 'dialout' (Linux) per accesso seriale senza sudo. La libreria richiede Python 3.7+.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "meshtastic",
+    "lesson": "MESHTASTIC CANALI: ogni nodo ha un canale primario (default 'LongFast') e fino a 7 secondari. I nodi si sentono solo se hanno lo stesso canale (stesso nome + stessa chiave PSK). Canale default pubblico: nome='', PSK=AQ==. Per rete privata: impostare nome e PSK custom uguali su tutti i nodi.",
+    "spec_hint": "Due nodi con canali diversi non si vedono anche se sulle stesse frequenze LoRa. Il canale determina la chiave di cifratura AES256. Il canale default è pubblico — chiunque con Meshtastic può leggere.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "meshtastic",
+    "lesson": "MESHTASTIC MODEM PRESET: i preset definiscono SF/BW/CR della radio. LongFast: SF11/250kHz/CR4/5 (buon range, 1km+). ShortSlow: SF7/125kHz/CR4/5 (veloce, 200-500m). LongModem: SF12/125kHz (massimo range, lento). Tutti i nodi della rete DEVONO usare lo stesso preset.",
+    "spec_hint": "Nodi con preset diversi non comunicano — stessa trappola dei parametri SF/BW in LoRa raw. LongFast è il default e il più usato per reti urbane. LongModem per reti rurali sparse.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "meshtastic",
+    "lesson": "MESHTASTIC INTEGRAZIONE MQTT: Meshtastic può uplink/downlink verso MQTT broker. Configura `mqtt.address`, `mqtt.username`, `mqtt.password` e `mqtt.enabled=true`. Topic: `msh/EU_868/2/e/LongFast/!<nodeid>`. Il payload è protobuf — usare meshtastic Python lib per decodifica.",
+    "spec_hint": "Il payload MQTT di Meshtastic è protobuf serializzato, non JSON. Parsarlo direttamente senza la libreria Python o protobuf è molto complesso. La libreria meshtastic Python ha `decode_raw()` per questo.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "meshtastic",
+    "lesson": "MESHTASTIC NODE TELEMETRIA: ogni nodo invia automaticamente telemetria (batteria, SNR, hop count) ogni ~15 min. Ricevi telemetria con Python API: `from meshtastic.mesh_pb2 import Telemetry; iface.localNode.requestTelemetry()`. Visualizza su mappa: meshtastic.liamcottle.net (rete pubblica) o Meshmap self-hosted.",
+    "spec_hint": "La telemetria automatica occupa bandwidth LoRa — in reti dense può interferire con messaggi utente. Configurare `telemetry_module.device_update_interval` a valori più alti (1800s+) in reti con molti nodi.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "meshtastic",
+    "lesson": "MESHTASTIC GPS T-BEAM: il T-Beam ha GPS integrato (Neo-6M/Neo-8M). Meshtastic legge automaticamente la posizione GPS e la broadcast sulla mesh ogni 15min (configurabile). Python API: `iface.getMyNodeInfo()['position']`. Le posizioni dei nodi sono visibili a tutti nella rete.",
+    "spec_hint": "Il GPS del T-Beam richiede visione del cielo — in ambienti indoor può richiedere 10-20 minuti per il primo fix (cold start). Dopo il primo fix, warm start è <30 secondi.",
+    "hardware_quirk": "T-Beam v1.1: GPS su UART2 (GPIO34=RX, GPIO12=TX). T-Beam v1.2: GPS su UART1 con pin diversi. AXP192 deve alimentare il GPS prima dell'init.",
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "meshtastic",
+    "lesson": "MESHTASTIC SERIAL API ESP32: per inviare/ricevere messaggi dal proprio firmware Arduino su ESP32, usa l'interfaccia seriale Meshtastic (UART). Collega un secondo ESP32 al T-Beam/Heltec via UART. Usa il protocollo StreamAPI: `meshtastic --port /dev/ttyUSB0 --sendtext 'hello'` o la Python lib per automatizzare.",
+    "spec_hint": "Non serve modificare il firmware Meshtastic — il protocollo seriale è documentato. Questo permette di usare un nodo Meshtastic come 'modem LoRa mesh' comandato da un Arduino/ESP32 separato.",
+    "hardware_quirk": null,
+    "board": "esp32:esp32:esp32"
+  },
+  {
+    "task_type": "meshtastic",
+    "lesson": "MESHTASTIC vs LORAWAN — QUANDO USARE COSA: Meshtastic = comunicazione tra persone/device off-grid, rete autonoma senza infrastruttura, range 5-15km in aperto. LoRaWAN = IoT con cloud, TTN gateway necessario, uplink dati sensori a server. Meshastic non è adatto per IoT ad alta frequenza (duty cycle 1-5 messaggi/minuto max per nodo).",
+    "spec_hint": "Usare Meshtastic per IoT con uplink frequente satura la mesh e degrada la QoS per tutti i nodi. LoRaWAN con TTN è progettato per IoT. Meshtastic è progettato per mesh comunicativa.",
+    "hardware_quirk": null,
+    "board": ""
+  },
+  {
+    "task_type": "meshtastic",
+    "lesson": "MESHTASTIC RANGE REALE: in campo aperto (campagna/montagna) 10-40km con antenna esterna da 3dBi. In città 0.5-3km (edifici attenuano molto). Tra nodi mesh in rete: ogni hop aggiunge ~20% di latenza. Max 7 hop per messaggio (configurabile). Antenna stock: 2dBi — sostituire con dipolo λ/4 per guadagno +5dB.",
+    "spec_hint": "Le antenne stock delle board Heltec/TTGO sono pessime — SMA-femmina + antenna omnidirezionale 3dBi a 868MHz quadruplica il range. Non usare MAI il modulo LoRa senza antenna: danneggia l'amplificatore RF.",
+    "hardware_quirk": "Connettore antenna: Heltec usa SMA-male (quindi cavo con SMA-female). TTGO usa U.FL/IPEX — adattatore IPEX→SMA consigliato per antenne esterne.",
+    "board": ""
+  }
+]
