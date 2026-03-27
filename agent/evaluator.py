@@ -408,7 +408,7 @@ class Evaluator:
             obs_description = (
                 f"Descrizione visiva: {obs.get('description','')}\n"
                 f"Oggetti rilevati: {obs.get('objects_total', 0)} "
-                f"(dots={len(obs.get('dots',[]))}, segments={len(obs.get('segments',[]))})\n"
+                f"(dots={len(obs.get('dots') or [])}, segments={len(obs.get('segments') or [])})\n"
                 f"Movimento: {'SÌ' if obs.get('motion_detected') else 'NO'} "
                 f"(confidence={obs.get('motion_confidence','?')}, "
                 f"displacement={obs.get('centroid_displacement',0):.1f}px)\n"

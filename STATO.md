@@ -1,6 +1,6 @@
 # STATO — Programmatore di Arduini
 
-> Ultima modifica: 2026-03-27 sera (run orologio v3b ✅ SUCCESSO hardware — zero patch, 3 lancette, OCR 00:09:32; fix observer falso negativo: max_tokens 600→1500, fallback dati accumulati, OCR override; KB 431→437 +6 lessons)
+> Ultima modifica: 2026-03-27 notte (run meteo DHT11+OLED v1 completata con 2 patch compile; fix evaluator.py None len bug; bug logico double-timer in readSensors da documentare e fixare in KB+SYSTEM_FUNCTION)
 
 ---
 
@@ -39,6 +39,31 @@ OMP_NUM_THREADS=8 /mnt/raid0/llama-cpp-m40/build_cuda/bin/llama-server \
   --host 0.0.0.0 --port 11436 --ctx-size 16384 --parallel 1 --threads 8 \
   --n-gpu-layers 99 --log-disable > /tmp/llama_qwen_11436.log 2>&1 &
 ```
+
+---
+
+## SESSIONE 2026-03-27 — Orologio v3b + Meteo DHT11
+
+### Run orologio analogico v3b ✅
+- **Zero patch** — M40 prima iterazione corretta grazie a lessons KB (cos/sin, setCursor, snprintf)
+- Hardware: 3 lancette visibili, OCR `00:09:32`, tempo avanza tra frame
+- Run dir: `logs/runs/20260327_081258_Sketch_ESP32_con_OLED_SSD1306_128x64_or/`
+
+### Run stazione meteo DHT11+OLED v1 ⚠️ parziale
+- **2 patch compile**: `DHTesp::readTemperature()` → `getTemperature()` + `getTextBounds(char*)` → `const char*`
+- **Bug logico non catturato**: double-timer in `readSensors()` — `lastUpdate` aggiornato da `loop()` prima di chiamare `readSensors()`, quindi la condizione interna non scatta mai → T:0.0 H:0.0
+- **Display hardware OK**: layout corretto (T/H text + barre orizzontali + UP counter)
+- Run dir: `logs/runs/20260327_095900_Sketch_ESP32_con_OLED_SSD1306_128x64_st/`
+
+### Fix infrastruttura applicati
+- `observer.py`: max_tokens 600→1500 per ultimi 2 step + fallback da dati accumulati + OCR override
+- `evaluator.py`: `len(None)` fix quando M40 ritorna `"dots": null` nel report compatto
+- KB: 437 lessons (stabile — save_to_kb della run meteo non completata prima della pausa)
+
+### Da fare alla prossima sessione
+1. Fix `readSensors` double-timer → aggiungere lesson in KB + SYSTEM_FUNCTION anti-pattern
+2. DHTesp API corrette in SYSTEM_FUNCTION: `TempAndHumidity data = dht.getTempAndHumidity()`
+3. Rilanciare run meteo v2 con i fix per verificare lettura sensore reale
 
 ---
 
@@ -206,8 +231,11 @@ python knowledge/import_lessons.py lessons_nuove.json
 
 ### 🔴 Priorità alta
 1. ~~**Run orologio v3b**~~ ✅ COMPLETATA — zero patch, hardware OK, OCR `00:09:32`
-2. **Test request_review in modalità interattiva** — prossima run con `--interactive` flag per avere 600s invece di 90s
-3. **snake_definitivo_valutazione.md** — documento valutazione finale del programmatore sulla sessione Snake (S1-S4)
+2. ~~**Run meteo DHT11+OLED v1**~~ ✅ COMPLETATA (hardware) — 2 patch compile, bug logico double-timer (T:0.0), display layout OK
+3. **Fix bug double-timer in readSensors** — M40 mette timer interno in readSensors MA loop() ha già aggiornato lastUpdate → sensore non legge mai. Fix: non usare timer dentro le funzioni di lettura, solo in loop()
+4. **Aggiungere DHTesp API corrette a SYSTEM_FUNCTION** — `TempAndHumidity data = dht.getTempAndHumidity(); float t = data.temperature;` — M40 usa `readTemperature()` che non esiste
+5. **Test request_review in modalità interattiva** — prossima run con `--interactive` flag per 600s review
+6. **snake_definitivo_valutazione.md** — documento valutazione finale Snake (S1-S4)
 
 ### 🟡 Priorità media
 5. **Espandere KB con Paolo Aliverti** — usare `docs/prompt_genera_lessons_kb.md` + `import_lessons.py`
